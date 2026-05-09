@@ -1,0 +1,12 @@
+{
+  "name": "atlas-server",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "start": "bun run index.ts",
+    "dev": "bun --watch run index.ts"
+  },
+  "devDependencies": {
+    "bun-types": "latest"
+  }
+}

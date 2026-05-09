@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Exec(cargo check)",
+      "Exec(./gradlew)",
+      "Exec(find)",
+      "Exec(jar)",
+      "Exec(javap)",
+      "Exec(ls)",
+      "Exec(mkdir)",
+      "Exec(rm)",
+      "Exec(java)"
+    ]
+  }
+}

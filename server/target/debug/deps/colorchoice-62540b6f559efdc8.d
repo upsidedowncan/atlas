@@ -1,0 +1,7 @@
+/run/media/udc/Files/atlas/server/target/debug/deps/colorchoice-62540b6f559efdc8.d: /home/udc/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/colorchoice-1.0.5/src/lib.rs
+
+/run/media/udc/Files/atlas/server/target/debug/deps/libcolorchoice-62540b6f559efdc8.rlib: /home/udc/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/colorchoice-1.0.5/src/lib.rs
+
+/run/media/udc/Files/atlas/server/target/debug/deps/libcolorchoice-62540b6f559efdc8.rmeta: /home/udc/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/colorchoice-1.0.5/src/lib.rs
+
+/home/udc/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/colorchoice-1.0.5/src/lib.rs:
