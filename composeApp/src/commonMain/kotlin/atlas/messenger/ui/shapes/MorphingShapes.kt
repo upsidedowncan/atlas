@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -88,15 +89,15 @@ private val morphCircleDiamond = Morph(circlePolygon, diamondPolygon)
 @Composable
 fun MorphingBackground(
     modifier: Modifier = Modifier,
-    accentColor: Color = Color(0xFF3CBCEB),
+    accentColor: Color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "bg-transition")
 
-    val progress by infiniteTransition.animateFloat(
+    val morphProgress by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            tween(5000, easing = LinearEasing),
+            tween(2500, easing = LinearEasing),
             repeatMode = RepeatMode.Reverse,
         ),
         label = "bg-progress",
@@ -106,7 +107,7 @@ fun MorphingBackground(
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
-            tween(8000, easing = LinearEasing),
+            tween(4000, easing = LinearEasing),
             repeatMode = RepeatMode.Restart,
         ),
         label = "bg-rotation",
@@ -116,24 +117,95 @@ fun MorphingBackground(
         initialValue = 0f,
         targetValue = -360f,
         animationSpec = infiniteRepeatable(
-            tween(12000, easing = LinearEasing),
+            tween(6000, easing = LinearEasing),
             repeatMode = RepeatMode.Restart,
         ),
         label = "bg-rotation2",
+    )
+
+    val bounce1X by infiniteTransition.animateFloat(
+        initialValue = 0.3f,
+        targetValue = 0.7f,
+        animationSpec = infiniteRepeatable(
+            tween(3000, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "bounce1X",
+    )
+
+    val bounce1Y by infiniteTransition.animateFloat(
+        initialValue = 0.3f,
+        targetValue = 0.7f,
+        animationSpec = infiniteRepeatable(
+            tween(2500, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "bounce1Y",
+    )
+
+    val bounce2X by infiniteTransition.animateFloat(
+        initialValue = 0.7f,
+        targetValue = 0.3f,
+        animationSpec = infiniteRepeatable(
+            tween(3500, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "bounce2X",
+    )
+
+    val bounce2Y by infiniteTransition.animateFloat(
+        initialValue = 0.2f,
+        targetValue = 0.5f,
+        animationSpec = infiniteRepeatable(
+            tween(2800, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "bounce2Y",
+    )
+
+    val bounce3X by infiniteTransition.animateFloat(
+        initialValue = 0.2f,
+        targetValue = 0.6f,
+        animationSpec = infiniteRepeatable(
+            tween(3200, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "bounce3X",
+    )
+
+    val bounce3Y by infiniteTransition.animateFloat(
+        initialValue = 0.6f,
+        targetValue = 0.3f,
+        animationSpec = infiniteRepeatable(
+            tween(2700, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "bounce3Y",
     )
 
     val morphPath1 = remember { Path() }
     val morphPath2 = remember { Path() }
     val morphPath3 = remember { Path() }
 
-    val accentBrush = Brush.sweepGradient(
+    val fillBrush1 = Brush.linearGradient(
         colors = listOf(
-            accentColor,
-            accentColor.copy(alpha = 0.3f),
-            accentColor.copy(alpha = 0.1f),
-            accentColor,
-        ),
-        center = Offset(0.5f, 0.5f),
+            accentColor.copy(alpha = 0.25f),
+            accentColor.copy(alpha = 0.15f),
+        )
+    )
+
+    val fillBrush2 = Brush.linearGradient(
+        colors = listOf(
+            accentColor.copy(alpha = 0.18f),
+            accentColor.copy(alpha = 0.08f),
+        )
+    )
+
+    val fillBrush3 = Brush.linearGradient(
+        colors = listOf(
+            accentColor.copy(alpha = 0.12f),
+            accentColor.copy(alpha = 0.05f),
+        )
     )
 
     Box(
@@ -142,53 +214,34 @@ fun MorphingBackground(
             .drawWithCache {
                 val s = size.minDimension
 
-                // Shape 1: circle↔star (large, centered, subtle)
-                morphCircleStar.toComposePath(progress, s * 0.35f, morphPath1)
-
-                morphCircleHexagon.toComposePath(1f - progress, s * 0.2f, morphPath2)
-
-                morphCircleDiamond.toComposePath((progress + 0.5f) % 1f, s * 0.12f, morphPath3)
-
-                // Shape 3: circle↔diamond (small, offset other direction)
-                morphCircleDiamond.toComposePath(
-                    progress = (progress + 0.5f) % 1f,
-                    scale = s * 0.12f,
-                    path = morphPath3,
-                )
+                morphCircleStar.toComposePath(morphProgress, s * 0.32f, morphPath1)
+                morphCircleHexagon.toComposePath(1f - morphProgress, s * 0.18f, morphPath2)
+                morphCircleDiamond.toComposePath((morphProgress + 0.5f) % 1f, s * 0.1f, morphPath3)
 
                 onDrawBehind {
-                    // Shape 1 — large centered
-                    rotate(rotation) {
-                        translate(size.width * 0.5f, size.height * 0.5f) {
+                    translate(bounce1X * size.width, bounce1Y * size.height) {
+                        rotate(rotation) {
                             drawPath(
                                 path = morphPath1,
-                                brush = accentBrush,
-                                style = Stroke(3.dp.toPx(), cap = StrokeCap.Round),
-                                alpha = 0.15f,
+                                brush = fillBrush1,
                             )
                         }
                     }
 
-                    // Shape 2 — upper-right
-                    rotate(rotation2) {
-                        translate(size.width * 0.75f, size.height * 0.3f) {
+                    translate(bounce2X * size.width, bounce2Y * size.height) {
+                        rotate(rotation2) {
                             drawPath(
                                 path = morphPath2,
-                                brush = accentBrush,
-                                style = Stroke(2.5.dp.toPx(), cap = StrokeCap.Round),
-                                alpha = 0.1f,
+                                brush = fillBrush2,
                             )
                         }
                     }
 
-                    // Shape 3 — lower-left
-                    rotate(rotation) {
-                        translate(size.width * 0.25f, size.height * 0.7f) {
+                    translate(bounce3X * size.width, bounce3Y * size.height) {
+                        rotate(rotation * 0.7f) {
                             drawPath(
                                 path = morphPath3,
-                                brush = accentBrush,
-                                style = Stroke(2.dp.toPx(), cap = StrokeCap.Round),
-                                alpha = 0.08f,
+                                brush = fillBrush3,
                             )
                         }
                     }
@@ -207,7 +260,7 @@ fun MorphingBackground(
 fun AnimatedEmptyState(
     modifier: Modifier = Modifier,
     shapeSize: Dp = 80.dp,
-    color: Color = Color(0xFF5F96E7),
+    color: Color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "empty-transition")
 
@@ -276,7 +329,7 @@ fun AnimatedEmptyState(
 @Composable
 fun MorphingLoadingIndicator(
     modifier: Modifier = Modifier,
-    color: Color = Color.White,
+    color: Color = MaterialTheme.colorScheme.onSurface,
     strokeWidth: Dp = 3.dp,
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "loading-transition")
@@ -337,7 +390,7 @@ private val sendMorph = Morph(sendCircle, sendStar)
 @Composable
 fun MorphingSendButton(
     modifier: Modifier = Modifier,
-    color: Color = Color(0xFF3CBCEB),
+    color: Color = MaterialTheme.colorScheme.primary,
     enabled: Boolean = true,
     onClick: () -> Unit = {},
 ) {
@@ -384,7 +437,7 @@ fun MorphingSendButton(
             Icon(
                 Icons.AutoMirrored.Filled.Send,
                 contentDescription = "Отправить",
-                tint = Color.White.copy(alpha = iconAlpha),
+                tint = MaterialTheme.colorScheme.onPrimary.copy(alpha = iconAlpha),
                 modifier = Modifier.size(22.dp),
             )
         }

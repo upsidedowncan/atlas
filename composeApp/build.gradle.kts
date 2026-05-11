@@ -62,6 +62,9 @@ kotlin {
 
             implementation(compose.materialIconsExtended)
             implementation(libs.androidx.graphics.shapes)
+            implementation(libs.coil.compose)
+            implementation(libs.coil.network.ktor)
+            implementation(libs.kmp.emoji.picker)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

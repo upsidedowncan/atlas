@@ -18,6 +18,8 @@ data class ChatMessage(
     val text: String,
     val timestampMs: Long,
     val isOwn: Boolean,
+    val isDeleted: Boolean = false,
+    val isEdited: Boolean = false,
 )
 
 @Serializable
@@ -57,6 +59,12 @@ sealed class ServerFrame {
 
     @Serializable
     data class PublicUsers(val users: List<PublicUserInfo>) : ServerFrame()
+
+    @Serializable
+    data class MessageEdited(val id: String, val from: String, val to: String, val payload: EncryptedPayload) : ServerFrame()
+
+    @Serializable
+    data class MessageDeleted(val id: String) : ServerFrame()
 }
 
 @Serializable
@@ -81,4 +89,10 @@ sealed class ClientFrame {
 
     @Serializable
     data class FetchPublicUsers(val dummy: Int = 0) : ClientFrame()
+
+    @Serializable
+    data class EditMessage(val id: String, val payload: EncryptedPayload, val senderPayload: EncryptedPayload) : ClientFrame()
+
+    @Serializable
+    data class DeleteMessage(val id: String) : ClientFrame()
 }

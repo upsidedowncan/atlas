@@ -18,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -31,133 +32,160 @@ fun UserDiscoveryScreen(viewModel: ChatViewModel) {
     val colors = MaterialTheme.colorScheme
     var searchQuery by remember { mutableStateOf("") }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Find People", fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    IconButton(
-                        onClick = viewModel::closeUserDiscovery,
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                }
-            )
-        }
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .background(colors.background)
-        ) {
-            // Search Bar
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = {
-                    searchQuery = it
-                    viewModel.onSearchQueryChanged(it)
-                    if (it.isNotBlank()) viewModel.submitSearch()
-                },
-                placeholder = { Text("Search by username...") },
+    BoxWithConstraints {
+        val isMobile = maxWidth < 600.dp
+
+        val content: @Composable (PaddingValues) -> Unit = { padding ->
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                shape = RoundedCornerShape(16.dp),
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { searchQuery = "" }) {
-                            Icon(Icons.Default.Close, contentDescription = "Clear")
-                        }
-                    }
-                },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                colors = OutlinedTextFieldDefaults.colors(
-                    unfocusedBorderColor = colors.outlineVariant.copy(alpha = 0.5f)
-                )
-            )
-
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 24.dp)
+                    .fillMaxSize()
+                    .padding(padding)
+                    .background(colors.background)
             ) {
-                if (searchQuery.isBlank()) {
-                    // Contacts Section (Users we have conversations with)
-                    if (state.conversations.isNotEmpty()) {
-                        item {
-                            DiscoveryHeader("Recent Contacts")
+                // Search Bar
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = {
+                        searchQuery = it
+                        viewModel.onSearchQueryChanged(it)
+                        if (it.isNotBlank()) viewModel.submitSearch()
+                    },
+                    placeholder = { Text("Поиск по имени пользователя...") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(Icons.Default.Close, contentDescription = "Очистить")
+                            }
                         }
-                        items(state.conversations) { username ->
-                            UserItem(
-                                username = username,
-                                isOnline = username in state.onlineUsers,
-                                onClick = {
-                                    viewModel.onUserSelected(username)
-                                    viewModel.closeUserDiscovery()
-                                }
-                            )
-                        }
-                    }
+                    },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        unfocusedBorderColor = colors.outlineVariant.copy(alpha = 0.5f)
+                    )
+                )
 
-                    // Publicly Available Section
-                    if (state.publicUsers.isNotEmpty()) {
-                        item {
-                            DiscoveryHeader("Publicly Available")
-                        }
-                        items(state.publicUsers) { publicUser ->
-                            UserItem(
-                                username = publicUser.username,
-                                isOnline = publicUser.isOnline,
-                                onClick = {
-                                    viewModel.onUserSelected(publicUser.username)
-                                    viewModel.closeUserDiscovery()
-                                }
-                            )
-                        }
-                    } else if (state.conversations.isEmpty()) {
-                        item {
-                            Box(
-                                modifier = Modifier.fillParentMaxSize(),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    "No public users available.\nEnable 'Public Profile' in settings to be seen!",
-                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                    color = colors.onSurfaceVariant
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = 24.dp)
+                ) {
+                    if (searchQuery.isBlank()) {
+                        // Contacts Section (Users we have conversations with)
+                        if (state.conversations.isNotEmpty()) {
+                            item {
+                                DiscoveryHeader("Недавние контакты")
+                            }
+                            items(state.conversations) { username ->
+                                UserItem(
+                                    username = username,
+                                    isOnline = username in state.onlineUsers,
+                                    onClick = {
+                                        viewModel.onUserSelected(username)
+                                        viewModel.closeUserDiscovery()
+                                    }
                                 )
                             }
                         }
-                    }
-                } else {
-                    // Search Results
-                    item {
-                        DiscoveryHeader("Search Results")
-                    }
-                    if (state.searchResults.isNotEmpty()) {
-                        items(state.searchResults) { username ->
-                            UserItem(
-                                username = username,
-                                isOnline = username in state.onlineUsers,
-                                onClick = {
-                                    viewModel.onUserSelected(username)
-                                    viewModel.closeUserDiscovery()
+
+                        // Publicly Available Section
+                        if (state.publicUsers.isNotEmpty()) {
+                            item {
+                                DiscoveryHeader("Доступные пользователи")
+                            }
+                            items(state.publicUsers) { publicUser ->
+                                UserItem(
+                                    username = publicUser.username,
+                                    isOnline = publicUser.isOnline,
+                                    onClick = {
+                                        viewModel.onUserSelected(publicUser.username)
+                                        viewModel.closeUserDiscovery()
+                                    }
+                                )
+                            }
+                        } else if (state.conversations.isEmpty()) {
+                            item {
+                                Box(
+                                    modifier = Modifier.fillParentMaxSize(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        "Нет доступных пользователей.\nВключите «Публичный профиль» в настройках, чтобы вас видели!",
+                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                        color = colors.onSurfaceVariant
+                                    )
                                 }
-                            )
+                            }
                         }
                     } else {
+                        // Search Results
                         item {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(32.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text("No users found matching \"$searchQuery\"")
+                            DiscoveryHeader("Результаты поиска")
+                        }
+                        if (state.searchResults.isNotEmpty()) {
+                            items(state.searchResults) { username ->
+                                UserItem(
+                                    username = username,
+                                    isOnline = username in state.onlineUsers,
+                                    onClick = {
+                                        viewModel.onUserSelected(username)
+                                        viewModel.closeUserDiscovery()
+                                    }
+                                )
+                            }
+                        } else {
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(32.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("Не найдено пользователей по запросу \"$searchQuery\"")
+                                }
                             }
                         }
                     }
+                }
+            }
+        }
+
+        if (isMobile) {
+            Scaffold(
+                topBar = {
+                    TopAppBar(
+                        title = { Text("Найти людей", fontWeight = FontWeight.Bold) },
+                        navigationIcon = {
+                            IconButton(
+                                onClick = viewModel::closeUserDiscovery,
+                            ) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
+                            }
+                        }
+                    )
+                },
+                content = content
+            )
+        } else {
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = colors.background,
+                tonalElevation = 1.dp
+            ) {
+                Column {
+                    CenterAlignedTopAppBar(
+                        title = { Text("Найти людей", fontWeight = FontWeight.Bold) },
+                        actions = {
+                            IconButton(onClick = viewModel::closeUserDiscovery) {
+                                Icon(Icons.Default.Close, contentDescription = "Закрыть")
+                            }
+                        }
+                    )
+                    content(PaddingValues(0.dp))
                 }
             }
         }
@@ -176,7 +204,7 @@ private fun DiscoveryHeader(text: String) {
 }
 
 @Composable
-private fun UserItem(
+internal fun UserItem(
     username: String,
     isOnline: Boolean,
     onClick: () -> Unit
@@ -209,6 +237,7 @@ private fun UserItem(
                 )
             }
             if (isOnline) {
+                val onlineColor = if (colors.surface.luminance() > 0.5f) Color(0xFF2E7D32) else Color(0xFF4CAF50)
                 Box(
                     modifier = Modifier
                         .size(14.dp)
@@ -221,7 +250,7 @@ private fun UserItem(
                         modifier = Modifier
                             .size(10.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFF4CAF50))
+                            .background(onlineColor)
                     )
                 }
             }
@@ -235,7 +264,7 @@ private fun UserItem(
                 color = colors.onSurface
             )
             Text(
-                text = if (isOnline) "Online" else "Offline",
+                text = if (isOnline) "В сети" else "Не в сети",
                 style = MaterialTheme.typography.bodySmall,
                 color = if (isOnline) colors.primary else colors.onSurfaceVariant
             )

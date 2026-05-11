@@ -17,7 +17,12 @@ fun App() {
     val viewModel = viewModel { ChatViewModel() }
     val state by viewModel.state.collectAsState()
 
-    AtlasAppTheme(textScale = state.textScale, accentColor = state.accentColor, contrast = state.contrast) {
+    AtlasAppTheme(
+        textScale = state.textScale,
+        accentColor = state.accentColor,
+        contrast = state.contrast,
+        colorPreset = state.colorPreset
+    ) {
         Box(modifier = Modifier.fillMaxSize()) {
             when (state.screen) {
                 Screen.AUTH -> AuthScreen(viewModel)

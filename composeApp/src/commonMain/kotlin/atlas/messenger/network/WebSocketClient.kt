@@ -28,6 +28,12 @@ sealed class ServerEvent {
     data class SearchResults(val users: List<String>) : ServerEvent()
     data class PublicUsersReceived(val users: List<atlas.messenger.data.PublicUserInfo>) : ServerEvent()
     data object Disconnected : ServerEvent()
+    data class ConversationDeleted(val peer: String) : ServerEvent()
+    data class UnreadCounts(val counts: Map<String, Int>) : ServerEvent()
+    data class UnreadCleared(val peer: String) : ServerEvent()
+    data class AvatarResponse(val username: String, val data: String?) : ServerEvent()
+    data class MessageEdited(val id: String, val from: String, val to: String, val payload: EncryptedPayload) : ServerEvent()
+    data class MessageDeleted(val id: String) : ServerEvent()
 }
 
 data class HistoryEntry(
@@ -45,20 +51,39 @@ class WebSocketClient(private val httpClient: HttpClient) {
 
     private var session: DefaultClientWebSocketSession? = null
     private val json = Json { ignoreUnknownKeys = true }
+    private var _connectionReady = CompletableDeferred<Unit>()
+    val connectionReady: Deferred<Unit> = _connectionReady
 
-    suspend fun connect(host: String, port: Int) {
-        httpClient.webSocket(host = host, port = port, path = "/") {
-            session = this
-            try {
-                for (frame in incoming) {
-                    if (frame is Frame.Text) {
-                        handleFrame(frame.readText())
+    suspend fun connect(host: String, port: Int, onConnect: suspend () -> Unit = {}) {
+        _connectionReady = CompletableDeferred()
+        try {
+            httpClient.webSocket(host = host, port = port, path = "/") {
+                session = this
+                println("DEBUG: WebSocket session established")
+                _connectionReady.complete(Unit)
+
+                // Perform initial actions (like auth) while inside the session block
+                onConnect()
+
+                try {
+                    for (frame in incoming) {
+                        if (frame is Frame.Text) {
+                            handleFrame(frame.readText())
+                        }
                     }
+                } catch (e: Exception) {
+                    println("DEBUG: Error in WebSocket frame loop: ${e.message}")
+                    throw e
+                } finally {
+                    println("DEBUG: WebSocket session ending")
+                    session = null
+                    _events.emit(ServerEvent.Disconnected)
                 }
-            } finally {
-                session = null
-                _events.emit(ServerEvent.Disconnected)
             }
+        } catch (e: Exception) {
+            println("DEBUG: WebSocket connection failed: ${e.message}")
+            _connectionReady.completeExceptionally(e)
+            throw e
         }
     }
 
@@ -107,6 +132,66 @@ class WebSocketClient(private val httpClient: HttpClient) {
         })
     }
 
+    suspend fun deleteConversation(peer: String) {
+        sendRaw(buildJsonObject {
+            put("type", "delete_conversation")
+            put("peer", peer)
+        })
+    }
+
+    suspend fun getUnread() {
+        sendRaw(buildJsonObject {
+            put("type", "get_unread")
+        })
+    }
+
+    suspend fun clearUnread(peer: String) {
+        sendRaw(buildJsonObject {
+            put("type", "clear_unread")
+            put("peer", peer)
+        })
+    }
+
+    suspend fun updateAvatar(data: String) {
+        sendRaw(buildJsonObject {
+            put("type", "update_avatar")
+            put("data", data)
+        })
+    }
+
+    suspend fun fetchAvatar(username: String) {
+        sendRaw(buildJsonObject {
+            put("type", "fetch_avatar")
+            put("username", username)
+        })
+    }
+
+    suspend fun editMessage(id: String, payload: EncryptedPayload, senderPayload: EncryptedPayload) {
+        sendRaw(buildJsonObject {
+            put("type", "edit_message")
+            put("id", id)
+            put("payload", buildJsonObject {
+                put("encryptedKey", payload.encryptedKey)
+                put("iv", payload.iv)
+                put("ciphertext", payload.ciphertext)
+                put("tag", payload.tag)
+            })
+            put("senderPayload", buildJsonObject {
+                put("encryptedKey", senderPayload.encryptedKey)
+                put("iv", senderPayload.iv)
+                put("ciphertext", senderPayload.ciphertext)
+                put("tag", senderPayload.tag)
+            })
+        })
+    }
+
+    suspend fun deleteMessage(id: String) {
+        sendRaw(buildJsonObject {
+            put("type", "delete_message")
+            put("id", id)
+        })
+    }
+
     suspend fun sendEncryptedMessage(id: String, to: String, payload: EncryptedPayload, senderPayload: EncryptedPayload, timestampMs: Long) {
         sendRaw(buildJsonObject {
             put("type", "message")
@@ -135,7 +220,18 @@ class WebSocketClient(private val httpClient: HttpClient) {
     }
 
     private suspend fun sendRaw(obj: JsonObject) {
-        session?.send(Frame.Text(obj.toString()))
+        val session = this.session
+        if (session == null) {
+            println("DEBUG: Cannot send message, session is null")
+            throw IllegalStateException("WebSocket session is not connected")
+        }
+        try {
+            session.send(Frame.Text(obj.toString()))
+            println("DEBUG: Message sent successfully")
+        } catch (e: Exception) {
+            println("DEBUG: Failed to send message: ${e.message}")
+            throw e
+        }
     }
 
     private suspend fun handleFrame(raw: String) {
@@ -214,6 +310,39 @@ class WebSocketClient(private val httpClient: HttpClient) {
                     }
                     ServerEvent.PublicUsersReceived(users)
                 }
+                "conversation_deleted" -> ServerEvent.ConversationDeleted(
+                    peer = obj["peer"]!!.jsonPrimitive.content,
+                )
+                "unread_counts" -> {
+                    val counts = obj["counts"]!!.jsonObject.entries.associate { (k, v) ->
+                        k to v.jsonPrimitive.content.toInt()
+                    }
+                    ServerEvent.UnreadCounts(counts)
+                }
+                "unread_cleared" -> ServerEvent.UnreadCleared(
+                    peer = obj["peer"]!!.jsonPrimitive.content,
+                )
+                "avatar_response" -> ServerEvent.AvatarResponse(
+                    username = obj["username"]!!.jsonPrimitive.content,
+                    data = obj["data"]?.jsonPrimitive?.contentOrNull,
+                )
+                "message_edited" -> {
+                    val p = obj["payload"]!!.jsonObject
+                    ServerEvent.MessageEdited(
+                        id = obj["id"]!!.jsonPrimitive.content,
+                        from = obj["from"]!!.jsonPrimitive.content,
+                        to = obj["to"]!!.jsonPrimitive.content,
+                        payload = atlas.messenger.data.EncryptedPayload(
+                            encryptedKey = p["encryptedKey"]!!.jsonPrimitive.content,
+                            iv = p["iv"]!!.jsonPrimitive.content,
+                            ciphertext = p["ciphertext"]!!.jsonPrimitive.content,
+                            tag = p["tag"]!!.jsonPrimitive.content,
+                        ),
+                    )
+                }
+                "message_deleted" -> ServerEvent.MessageDeleted(
+                    id = obj["id"]!!.jsonPrimitive.content,
+                )
                 else -> return
             }
 

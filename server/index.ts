@@ -30,6 +30,7 @@ db.run(`
 
 db.run(`CREATE INDEX IF NOT EXISTS idx_messages_toUser   ON messages(toUser)`);
 db.run(`CREATE INDEX IF NOT EXISTS idx_messages_fromUser ON messages(fromUser)`);
+db.run(`CREATE INDEX IF NOT EXISTS idx_unread_toUser      ON unread(toUser)`);
 
 interface OnlineEntry {
   socket: ServerWebSocket<{ username: string }>;
@@ -56,8 +57,6 @@ type ClientFrame =
     }
   | { type: "fetch_key"; username: string }
   | { type: "search_users"; query: string };
-
-type ServerWebSocket<T> = import("bun").ServerWebSocket<T>;
 
 const onlineUsers = new Map<string, OnlineEntry>();
 
@@ -92,6 +91,20 @@ const stmtGetHistoryForUser = db.prepare<{
 const stmtSearchUsers = db.prepare<{ username: string }, [string, string]>(
   "SELECT username FROM users WHERE username != ? AND username LIKE ?"
 );
+const stmtGetAvatar = db.prepare<{ avatarUrl: string }, [string]>(
+  "SELECT avatarUrl FROM users WHERE username = ?"
+);
+const stmtUpdateAvatar = db.prepare("UPDATE users SET avatarUrl = ? WHERE username = ?");
+const stmtDeleteConversation = db.prepare(
+  "DELETE FROM messages WHERE (fromUser = ? AND toUser = ?) OR (fromUser = ? AND toUser = ?)"
+);
+const stmtGetUnread = db.prepare<{ fromUser: string; id: string; timestamp: number }, [string]>(
+  "SELECT fromUser, id, timestamp FROM unread WHERE toUser = ?"
+);
+const stmtInsertUnread = db.prepare(
+  "INSERT OR IGNORE INTO unread (id, fromUser, toUser, timestamp) VALUES (?, ?, ?, ?)"
+);
+const stmtDeleteUnreadForPeer = db.prepare("DELETE FROM unread WHERE toUser = ? AND fromUser = ?");
 
 function log(message: string): void {
   console.log(`[${new Date().toISOString()}] ${message}`);
@@ -126,6 +139,20 @@ function sendHistory(socket: ServerWebSocket<unknown>, username: string): void {
       return { id: r.id, from: r.fromUser, to: r.toUser, payload, timestampMs: r.timestampMs };
     }),
   });
+}
+
+function broadcastUnreadCount(username: string): void {
+  const unreadRows = stmtGetUnread.all(username);
+  const unreadMap: Record<string, number> = {};
+  for (const row of unreadRows) {
+    unreadMap[row.fromUser] = (unreadMap[row.fromUser] || 0) + 1;
+  }
+  sendToUser(username, { type: "unread_counts", counts: unreadMap });
+}
+
+function sendToUser(username: string, data: unknown): void {
+  const entry = onlineUsers.get(username);
+  if (entry) send(entry.socket, data);
 }
 
 Bun.serve<{ username: string }>({
@@ -242,6 +269,62 @@ Bun.serve<{ username: string }>({
           break;
         }
 
+        case "delete_conversation": {
+          const sender = socket.data.username;
+          if (!sender) {
+            send(socket, { type: "error", message: "Необходимо сначала войти." });
+            return;
+          }
+          stmtDeleteConversation.run(sender, frame.peer, frame.peer, sender);
+          stmtDeleteUnreadForPeer.run(sender, frame.peer);
+          send(socket, { type: "conversation_deleted", peer: frame.peer });
+          break;
+        }
+
+        case "get_unread": {
+          const sender = socket.data.username;
+          if (!sender) {
+            send(socket, { type: "error", message: "Необходимо сначала войти." });
+            return;
+          }
+          broadcastUnreadCount(sender);
+          break;
+        }
+
+        case "clear_unread": {
+          const sender = socket.data.username;
+          if (!sender) {
+            send(socket, { type: "error", message: "Необходимо сначала войти." });
+            return;
+          }
+          stmtDeleteUnreadForPeer.run(sender, frame.peer);
+          broadcastUnreadCount(sender);
+          break;
+        }
+
+        case "update_avatar": {
+          const sender = socket.data.username;
+          if (!sender) {
+            send(socket, { type: "error", message: "Необходимо сначала войти." });
+            return;
+          }
+          stmtUpdateAvatar.run(frame.avatarUrl, sender);
+          send(socket, { type: "avatar_updated", avatarUrl: frame.avatarUrl });
+          break;
+        }
+
+        case "fetch_avatar": {
+          const sender = socket.data.username;
+          if (!sender) {
+            send(socket, { type: "error", message: "Необходимо сначала войти." });
+            return;
+          }
+          const row = stmtGetAvatar.get(frame.username);
+          const avatarUrl = row?.avatarUrl ?? null;
+          send(socket, { type: "avatar_response", username: frame.username, avatarUrl });
+          break;
+        }
+
         case "message": {
           const sender = socket.data.username;
           if (!sender) {
@@ -256,7 +339,12 @@ Bun.serve<{ username: string }>({
             timestampMs,
           );
           const recipient = onlineUsers.get(to);
-          if (recipient) send(recipient.socket, { type: "message", id, from: sender, to, payload, timestampMs });
+          if (recipient) {
+            send(recipient.socket, { type: "message", id, from: sender, to, payload, timestampMs });
+          } else {
+            stmtInsertUnread.run(id, sender, to, timestampMs);
+            sendToUser(sender, { type: "unread_recorded", peer: to });
+          }
           send(socket, { type: "message", id, from: sender, to, payload: senderPayload, timestampMs });
           log(`Зашифрованное сообщение: ${sender} → ${to}`);
           break;

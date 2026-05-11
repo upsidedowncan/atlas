@@ -39,6 +39,7 @@ data class ChatUiState(
     val showSettings: Boolean = false,
     val textScale: Float = 1.0f,
     val accentColor: Int = 0xFF2196F3.toInt(),
+    val colorPreset: ColorPreset = ColorPreset.DEFAULT,
     val contrast: Float = 1.0f,
     val publicKeyFingerprint: String = "",
     val serverUrl: String = "ws://127.0.0.1:8080",
@@ -49,7 +50,13 @@ data class ChatUiState(
     val activeCallPeer: String? = null,
     val callAudioLevel: Float = 0f,
     val micEnabled: Boolean = false,
+    val unreadCounts: Map<String, Int> = emptyMap(),
+    val showEmojiPicker: Boolean = false,
+    val avatars: Map<String, String?> = emptyMap(),
+    val avatarUploading: Boolean = false,
 )
+
+enum class ColorPreset { DEFAULT, VIBRANT, MUTED, PASTEL }
 
 @OptIn(ExperimentalUuidApi::class)
 class ChatViewModel : ViewModel() {
@@ -144,6 +151,10 @@ class ChatViewModel : ViewModel() {
         viewModelScope.launch { wsClient.fetchPublicUsers() }
     }
 
+    fun refreshPublicUsers() {
+        viewModelScope.launch { wsClient.fetchPublicUsers() }
+    }
+
     fun closeUserDiscovery() {
         _state.update { it.copy(showUserDiscovery = false) }
     }
@@ -193,10 +204,45 @@ class ChatViewModel : ViewModel() {
 
     fun onMicEnabledChanged(enabled: Boolean) {
         _state.update { it.copy(micEnabled = enabled) }
-        // Restart audio monitoring if in a call
         if (state.value.activeCallPeer != null) {
             simulateAudioLevels()
         }
+    }
+
+    fun deleteConversation(peer: String) {
+        viewModelScope.launch { wsClient.deleteConversation(peer) }
+    }
+
+    fun fetchUnreadCounts() {
+        viewModelScope.launch { wsClient.getUnread() }
+    }
+
+    fun clearUnreadForPeer(peer: String) {
+        viewModelScope.launch { wsClient.clearUnread(peer) }
+    }
+
+    fun toggleEmojiPicker() {
+        _state.update { it.copy(showEmojiPicker = !it.showEmojiPicker) }
+    }
+
+    fun hideEmojiPicker() {
+        _state.update { it.copy(showEmojiPicker = false) }
+    }
+
+    fun insertEmoji(emoji: String) {
+        _state.update { it.copy(inputText = it.inputText + emoji, showEmojiPicker = false) }
+    }
+
+    fun updateAvatar(imageData: String) {
+        _state.update { it.copy(avatarUploading = true) }
+        viewModelScope.launch {
+            wsClient.updateAvatar(imageData)
+            _state.update { it.copy(avatarUploading = false) }
+        }
+    }
+
+    fun fetchAvatar(username: String) {
+        viewModelScope.launch { wsClient.fetchAvatar(username) }
     }
 
     fun onTextScaleChanged(scale: Float) {
@@ -207,8 +253,20 @@ class ChatViewModel : ViewModel() {
         _state.update { it.copy(accentColor = color) }
     }
 
+    fun onColorPresetChanged(preset: ColorPreset) {
+        _state.update { 
+            runCatching { it.copy(colorPreset = preset) }.getOrElse { 
+                ChatUiState(colorPreset = preset) 
+            }
+        }
+    }
+
     fun onContrastChanged(contrast: Float) {
-        _state.update { it.copy(contrast = contrast) }
+        _state.update { 
+            runCatching { it.copy(contrast = contrast) }.getOrElse { 
+                ChatUiState(contrast = contrast) 
+            }
+        }
     }
 
     fun onServerUrlChanged(url: String) {
@@ -255,21 +313,24 @@ class ChatViewModel : ViewModel() {
         connectionJob = viewModelScope.launch(Dispatchers.Default) {
             launch { wsClient.events.collect { event -> handleServerEvent(event) } }
 
-            launch {
-                runCatching {
-                    wsClient.connect(host, port)
-                }.onFailure { e ->
-                    _state.update { it.copy(isConnecting = false, errorMessage = "Ошибка подключения: ${e.message}") }
+            runCatching {
+                println("DEBUG: Starting WebSocket connection to $host:$port")
+                wsClient.connect(host, port) {
+                    println("DEBUG: Connection ready, sending auth")
+                    val isReg = state.value.isRegistering
+                    if (isReg) {
+                        wsClient.authRegister(username, password, encryption.publicKeyBase64)
+                    } else {
+                        wsClient.authLogin(username, password, encryption.publicKeyBase64)
+                    }
                 }
-            }
-
-            delay(300)
-            val isReg = state.value.isRegistering
-            println("DEBUG: Sending auth, isRegistering=$isReg, username=$username")
-            if (isReg) {
-                wsClient.authRegister(username, password, encryption.publicKeyBase64)
-            } else {
-                wsClient.authLogin(username, password, encryption.publicKeyBase64)
+                println("DEBUG: WebSocket connection completed")
+            }.onFailure { e ->
+                println("DEBUG: WebSocket connection failed: ${e.message}")
+                _state.update { 
+                    runCatching { it.copy(isConnecting = false, errorMessage = "Ошибка подключения: ${e.message}") }
+                        .getOrElse { ChatUiState(isConnecting = false, errorMessage = "Ошибка подключения: ${e.message}") }
+                }
             }
         }
     }
@@ -314,6 +375,32 @@ class ChatViewModel : ViewModel() {
         }
     }
 
+    fun editMessage(messageId: String, newText: String) {
+        val currentState = state.value
+        val peer = currentState.selectedPeer ?: return
+
+        viewModelScope.launch(Dispatchers.Default) {
+            runCatching {
+                val recipientKey = resolvePublicKey(peer)
+                val payload = encryption.encrypt(newText, recipientKey)
+                val senderPayload = encryption.encryptForSelf(newText)
+                wsClient.editMessage(messageId, payload, senderPayload)
+            }.onFailure { e ->
+                _state.update { it.copy(errorMessage = "Ошибка редактирования: ${e.message}") }
+            }
+        }
+    }
+
+    fun deleteMessage(messageId: String) {
+        viewModelScope.launch(Dispatchers.Default) {
+            runCatching {
+                wsClient.deleteMessage(messageId)
+            }.onFailure { e ->
+                _state.update { it.copy(errorMessage = "Ошибка удаления: ${e.message}") }
+            }
+        }
+    }
+
     fun disconnect() {
         wsClient.disconnect()
         connectionJob?.cancel()
@@ -343,6 +430,7 @@ class ChatViewModel : ViewModel() {
                         isPublic = event.isPublic
                     )
                 }
+                viewModelScope.launch { wsClient.getUnread() }
             }
 
             is ServerEvent.ServerError -> {
@@ -455,6 +543,75 @@ class ChatViewModel : ViewModel() {
 
             is ServerEvent.PublicUsersReceived -> {
                 _state.update { it.copy(publicUsers = event.users) }
+            }
+
+            is ServerEvent.ConversationDeleted -> {
+                val peer = event.peer
+                val newConversations = _state.value.conversations.filter { it != peer }
+                val newAllMessages = _state.value.allMessages.toMutableMap()
+                newAllMessages.remove(peer)
+                val newUnread = _state.value.unreadCounts.toMutableMap()
+                newUnread.remove(peer)
+                _state.update {
+                    it.copy(
+                        conversations = newConversations,
+                        allMessages = newAllMessages,
+                        unreadCounts = newUnread,
+                        selectedPeer = if (_state.value.selectedPeer == peer) null else _state.value.selectedPeer,
+                    )
+                }
+            }
+
+            is ServerEvent.UnreadCounts -> {
+                _state.update { it.copy(unreadCounts = event.counts) }
+            }
+
+            is ServerEvent.UnreadCleared -> {
+                val newUnread = _state.value.unreadCounts.toMutableMap()
+                newUnread.remove(event.peer)
+                _state.update { it.copy(unreadCounts = newUnread) }
+            }
+
+            is ServerEvent.AvatarResponse -> {
+                val newAvatars = _state.value.avatars.toMutableMap()
+                newAvatars[event.username] = event.data
+                _state.update { it.copy(avatars = newAvatars) }
+            }
+
+            is ServerEvent.MessageEdited -> {
+                val owner = state.value.username
+                runCatching {
+                    val newText = encryption.decrypt(event.payload)
+                    _state.update { s ->
+                        val newAllMessages = s.allMessages.toMutableMap()
+                        for ((peerKey, messages) in newAllMessages) {
+                            val updatedMessages = messages.map { msg ->
+                                if (msg.id == event.id) {
+                                    msg.copy(text = newText, isEdited = true)
+                                } else msg
+                            }
+                            newAllMessages[peerKey] = updatedMessages
+                        }
+                        val updatedMessages = if (s.selectedPeer != null) newAllMessages[s.selectedPeer] ?: s.messages else s.messages
+                        s.copy(allMessages = newAllMessages, messages = updatedMessages)
+                    }
+                }.onFailure { e ->
+                    _state.update { it.copy(errorMessage = "Ошибка расшифровки редактирования: ${e.message}") }
+                }
+            }
+
+            is ServerEvent.MessageDeleted -> {
+                _state.update { s ->
+                    val newAllMessages = s.allMessages.toMutableMap()
+                    for ((peerKey, messages) in newAllMessages) {
+                        val updatedMessages = messages.map { msg ->
+                            if (msg.id == event.id) msg.copy(isDeleted = true) else msg
+                        }
+                        newAllMessages[peerKey] = updatedMessages
+                    }
+                    val updatedMessages = if (s.selectedPeer != null) newAllMessages[s.selectedPeer] ?: s.messages else s.messages
+                    s.copy(allMessages = newAllMessages, messages = updatedMessages)
+                }
             }
 
             ServerEvent.Disconnected -> {

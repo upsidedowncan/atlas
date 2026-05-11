@@ -1,26 +1,36 @@
 package atlas.messenger.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
+
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.Fingerprint
-import androidx.compose.material.icons.outlined.Logout
+import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.rounded.Mood
 import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material3.*
@@ -33,17 +43,59 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.geometry.Offset
+import coil3.compose.AsyncImage
 import atlas.messenger.data.ChatMessage
 import atlas.messenger.ui.shapes.AnimatedEmptyState
 import atlas.messenger.viewmodel.ChatViewModel
+import me.digitalby.emojipicker.EmojiPicker
+import me.digitalby.emojipicker.rememberEmojiPickerState
+import atlas.messenger.viewmodel.ColorPreset
+import kotlinx.coroutines.launch
+import androidx.compose.ui.text.font.FontStyle
+
+@Composable
+private fun AvatarBox(
+    username: String,
+    avatarUrl: String?,
+    size: Int = 56,
+) {
+    Box(
+        modifier = Modifier
+            .size(size.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.primaryContainer),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (avatarUrl != null) {
+            AsyncImage(
+                model = avatarUrl,
+                contentDescription = "Аватар $username",
+                modifier = Modifier.fillMaxSize().clip(CircleShape),
+                contentScale = ContentScale.Crop,
+            )
+        } else {
+            Text(
+                text = username.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+    }
+}
 
 private val MOBILE_BREAKPOINT = 600.dp
 
@@ -59,10 +111,10 @@ fun MainScreen(viewModel: ChatViewModel) {
             } else {
                 DesktopMainScreen(viewModel)
             }
-        }
-        
-        if (state.showUserDiscovery) {
-            UserDiscoveryScreen(viewModel)
+
+            if (state.showUserDiscovery && maxWidth < MOBILE_BREAKPOINT) {
+                UserDiscoveryScreen(viewModel)
+            }
         }
     }
 }
@@ -74,6 +126,8 @@ private fun MobileMainScreen(viewModel: ChatViewModel) {
 
     val showChat = state.selectedPeer != null
     var selectedTab by remember { mutableStateOf(0) }
+
+    val totalUnread = state.unreadCounts.values.sum()
 
     if (showChat) {
         ChatPane(viewModel = viewModel, showBackButton = true, onBack = viewModel::closeChat)
@@ -90,7 +144,16 @@ private fun MobileMainScreen(viewModel: ChatViewModel) {
                     NavigationBarItem(
                         selected = selectedTab == 0,
                         onClick = { selectedTab = 0 },
-                        icon = { Icon(Icons.Default.Chat, contentDescription = null) },
+                        icon = {
+                            Box {
+                                Icon(Icons.Default.Chat, contentDescription = null)
+                                if (totalUnread > 0) {
+                                    Badge(containerColor = colors.error) {
+                                        Text(if (totalUnread > 99) "99+" else totalUnread.toString())
+                                    }
+                                }
+                            }
+                        },
                         label = { Text("Чаты") },
                         modifier = Modifier,
                         colors = NavigationBarItemDefaults.colors(
@@ -190,7 +253,7 @@ private fun MobileConversationListTab(viewModel: ChatViewModel) {
                         fabExpanded = false
                         viewModel.openUserDiscovery()
                     },
-                    text = { Text("Find People") },
+                    text = { Text("Найти людей") },
                     icon = { Icon(Icons.Default.Search, contentDescription = null) },
                     modifier = Modifier,
                 )
@@ -271,12 +334,7 @@ private fun MobileSearchDialog(
                                                     .background(MaterialTheme.colorScheme.secondaryContainer),
                                                 contentAlignment = Alignment.Center,
                                             ) {
-                                                Text(
-                                                    text = username.first().uppercaseChar().toString(),
-                                                    style = MaterialTheme.typography.titleSmall,
-                                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                                    fontWeight = FontWeight.Bold,
-                                                )
+                                                AvatarBox(username, state.avatars[username], 40)
                                             }
                                         },
                                         modifier = Modifier.clickable { onUserSelected(username) },
@@ -423,12 +481,7 @@ private fun DesktopMainScreen(viewModel: ChatViewModel) {
                                                     .background(MaterialTheme.colorScheme.secondaryContainer),
                                                 contentAlignment = Alignment.Center,
                                             ) {
-                                                Text(
-                                                    text = username.first().uppercaseChar().toString(),
-                                                    style = MaterialTheme.typography.titleSmall,
-                                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                                    fontWeight = FontWeight.Bold,
-                                                )
+                                                AvatarBox(username, state.avatars[username], 40)
                                             }
                                         },
                                         trailingContent = {
@@ -481,6 +534,7 @@ private fun DesktopMainScreen(viewModel: ChatViewModel) {
         Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
             when {
                 state.showSettings -> SettingsPane(viewModel)
+                state.showUserDiscovery -> UserDiscoveryScreen(viewModel)
                 state.selectedPeer != null -> ChatPane(viewModel)
                 else -> EmptyPane()
             }
@@ -520,6 +574,7 @@ private fun VerticalSplitHandle(onDrag: (Float) -> Unit) {
 private fun NavRail(viewModel: ChatViewModel) {
     val state by viewModel.state.collectAsState()
     val colors = MaterialTheme.colorScheme
+    val totalUnread = state.unreadCounts.values.sum()
 
     val navRailColors = NavigationRailItemDefaults.colors(
         selectedIconColor = colors.onPrimaryContainer,
@@ -537,7 +592,16 @@ private fun NavRail(viewModel: ChatViewModel) {
         NavigationRailItem(
             selected = !state.showSearch && !state.showSettings && !state.showUserDiscovery,
             onClick = { viewModel.closeSearch(); viewModel.closeSettings(); viewModel.closeUserDiscovery() },
-            icon = { Icon(Icons.Default.ChatBubble, contentDescription = "Чаты") },
+            icon = {
+                Box {
+                    Icon(Icons.Default.ChatBubble, contentDescription = "Чаты")
+                    if (totalUnread > 0) {
+                        Badge(containerColor = colors.error, modifier = Modifier.offset(x = 12.dp, y = (-4).dp)) {
+                            Text(if (totalUnread > 99) "99+" else totalUnread.toString())
+                        }
+                    }
+                }
+            },
             label = { Text("Чаты") },
             modifier = Modifier,
             colors = navRailColors,
@@ -545,8 +609,8 @@ private fun NavRail(viewModel: ChatViewModel) {
         NavigationRailItem(
             selected = state.showUserDiscovery,
             onClick = viewModel::openUserDiscovery,
-            icon = { Icon(Icons.Default.Search, contentDescription = "Search") },
-            label = { Text("Search") },
+            icon = { Icon(Icons.Default.Search, contentDescription = "Поиск") },
+            label = { Text("Поиск") },
             modifier = Modifier,
             colors = navRailColors,
         )
@@ -566,37 +630,102 @@ private fun NavRail(viewModel: ChatViewModel) {
 @Composable
 private fun ConversationList(viewModel: ChatViewModel) {
     val state by viewModel.state.collectAsState()
+    val colors = MaterialTheme.colorScheme
 
     Column(modifier = Modifier.fillMaxSize()) {
         if (state.conversations.isEmpty()) {
+            LaunchedEffect(Unit) {
+                viewModel.refreshPublicUsers()
+            }
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center,
             ) {
+                val scrollState = rememberScrollState()
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 32.dp)
+                        .verticalScroll(scrollState),
                 ) {
-                    AnimatedEmptyState(
-                        shapeSize = 64.dp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(80.dp)
+                            .clip(CircleShape)
+                            .background(colors.primaryContainer),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Chat,
+                            contentDescription = null,
+                            modifier = Modifier.size(40.dp),
+                            tint = colors.onPrimaryContainer
+                        )
+                    }
+
+                    Spacer(Modifier.height(8.dp))
+
                     Text(
-                        "Найдите пользователей",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        "Начните чат!",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.onSurface
                     )
+
+                    Text(
+                        "Найдите пользователей, чтобы начать общение",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = colors.onSurfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
+
+                    Spacer(Modifier.height(8.dp))
+
+                    Button(
+                        onClick = { viewModel.openUserDiscovery() },
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Icon(Icons.Filled.Search, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Найти пользователей")
+                    }
+
+                    if (state.publicUsers.isNotEmpty()) {
+                        Spacer(Modifier.height(16.dp))
+
+                        Text(
+                            "ДОСТУПНЫЕ ПОЛЬЗОВАТЕЛИ",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = colors.primary,
+                            modifier = Modifier.align(Alignment.Start)
+                        )
+
+                        state.publicUsers.take(5).forEach { user ->
+                            UserItem(
+                                username = user.username,
+                                isOnline = user.isOnline,
+                                onClick = { viewModel.onUserSelected(user.username) }
+                            )
+                        }
+                    }
                 }
             }
         } else {
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 items(state.conversations) { peer ->
+                    val unread = state.unreadCounts[peer] ?: 0
+                    val avatarUrl = state.avatars[peer]
                     ConversationItem(
                         peer = peer,
                         isSelected = state.selectedPeer == peer,
                         isOnline = peer in state.onlineUsers,
                         lastMessage = state.allMessages[peer]?.lastOrNull()?.text,
+                        unreadCount = unread,
+                        avatarUrl = avatarUrl,
                         onClick = { viewModel.onUserSelected(peer) },
+                        onDelete = { viewModel.deleteConversation(peer) },
                     )
                 }
             }
@@ -610,72 +739,119 @@ private fun ConversationItem(
     isSelected: Boolean,
     isOnline: Boolean,
     lastMessage: String?,
+    unreadCount: Int,
+    avatarUrl: String?,
     onClick: () -> Unit,
+    onDelete: () -> Unit,
 ) {
     val bg = if (isSelected)
         MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
     else
         Color.Transparent
 
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 2.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(bg)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Box {
-            Box(
-                modifier = Modifier
-                    .size(56.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primaryContainer),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = peer.first().uppercaseChar().toString(),
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
-            if (isOnline) {
-                Box(
-                    modifier = Modifier
-                        .size(18.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surface)
-                        .align(Alignment.BottomEnd),
-                    contentAlignment = Alignment.Center,
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var showContextMenu by remember { mutableStateOf(false) }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("Удалить чат?") },
+            text = { Text("Все сообщения с '$peer' будут удалены. Это действие нельзя отменить.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onDelete()
+                        showDeleteDialog = false
+                    }
                 ) {
+                    Text("Удалить", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("Отмена")
+                }
+            }
+        )
+    }
+
+    Box {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 2.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(bg)
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = { showContextMenu = true }
+                )
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Box {
+                AvatarBox(peer, avatarUrl, 56)
+
+                if (isOnline) {
+                    val onlineColor = if (MaterialTheme.colorScheme.surface.luminance() > 0.5f) Color(0xFF2E7D32) else Color(0xFF4CAF50)
                     Box(
                         modifier = Modifier
-                            .size(12.dp)
+                            .size(18.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFF4CAF50)),
-                    )
+                            .background(MaterialTheme.colorScheme.surface)
+                            .align(Alignment.BottomEnd),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(12.dp)
+                                .clip(CircleShape)
+                                .background(onlineColor),
+                        )
+                    }
                 }
+                if (unreadCount > 0) {
+                    Badge(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.align(Alignment.TopEnd),
+                    ) {
+                        Text(if (unreadCount > 99) "99+" else unreadCount.toString())
+                    }
+                }
+            }
+
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(
+                    text = peer,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = lastMessage ?: if (isOnline) "В сети" else "Нет сообщений",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
 
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(
-                text = peer,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = lastMessage ?: if (isOnline) "В сети" else "Нет сообщений",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+        DropdownMenu(
+            expanded = showContextMenu,
+            onDismissRequest = { showContextMenu = false },
+        ) {
+            DropdownMenuItem(
+                text = { Text("Удалить чат") },
+                onClick = {
+                    showContextMenu = false
+                    showDeleteDialog = true
+                },
+                leadingIcon = {
+                    Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                }
             )
         }
     }
@@ -690,6 +866,10 @@ private fun ChatPane(
     val state by viewModel.state.collectAsState()
     val listState = rememberLazyListState()
     val peer = state.selectedPeer ?: return
+
+    LaunchedEffect(peer) {
+        viewModel.clearUnreadForPeer(peer)
+    }
 
     LaunchedEffect(state.messages.size) {
         if (state.messages.isNotEmpty()) {
@@ -715,37 +895,24 @@ private fun ChatPane(
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
                         }
                     }
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primaryContainer),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = peer.first().uppercaseChar().toString(),
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
+                    AvatarBox(peer, state.avatars[peer], 40)
                     Column(modifier = Modifier.weight(1f)) {
                         Text(peer, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         Text(
-                            if (peer in state.onlineUsers) "Online" else "Offline",
+                            if (peer in state.onlineUsers) "В сети" else "Не в сети",
                             style = MaterialTheme.typography.bodySmall,
                             color = if (peer in state.onlineUsers) MaterialTheme.colorScheme.primary
                                     else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    
+
                     IconButton(
                         onClick = { viewModel.startCall(peer) },
                         modifier = Modifier
                     ) {
                         Icon(
                             Icons.Default.Call,
-                            contentDescription = "Call",
+                            contentDescription = "Звонок",
                             tint = MaterialTheme.colorScheme.primary
                         )
                     }
@@ -769,6 +936,29 @@ private fun ChatPane(
                 contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 72.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
+                item {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Icon(
+                                Icons.Default.Lock,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(10.dp)
+                            )
+                            Text(
+                                text = "Защищено сквозным шифрованием",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                }
                 val groups = groupMessages(state.messages)
                 groups.forEach { group ->
                     items(group.messages.size) { idx ->
@@ -780,6 +970,8 @@ private fun ChatPane(
                             isFirst  = isFirst,
                             isLast   = isLast,
                             isSingle = group.messages.size == 1,
+                            onEdit   = { id -> viewModel.editMessage(id, msg.text) },
+                            onDelete = { id -> viewModel.deleteMessage(id) },
                         )
                     }
                     item {
@@ -812,6 +1004,9 @@ private fun ChatPane(
             onSendClick = viewModel::sendMessage,
             onAttachClick = {},
             onVoiceClick = {},
+            showEmojiPicker = state.showEmojiPicker,
+            onEmojiToggle = viewModel::toggleEmojiPicker,
+            onEmojiSelected = viewModel::insertEmoji,
             modifier = Modifier.align(Alignment.BottomCenter),
         )
     }
@@ -841,7 +1036,27 @@ private fun MessageBubble(
     isFirst: Boolean,
     isLast: Boolean,
     isSingle: Boolean,
+    onEdit: ((String) -> Unit)? = null,
+    onDelete: ((String) -> Unit)? = null,
 ) {
+    if (message.isDeleted) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp),
+            horizontalArrangement = if (message.isOwn) Arrangement.End else Arrangement.Start,
+        ) {
+            Text(
+                text = "Сообщение удалено",
+                style = MaterialTheme.typography.bodyMedium.copy(fontStyle = FontStyle.Italic),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+        }
+        return
+    }
+
+    var showMenu by remember { mutableStateOf(false) }
+    var menuPosition by remember { mutableStateOf(Offset.Zero) }
+
     val radiusLarge = 20.dp
     val radiusSmall = 4.dp
 
@@ -861,25 +1076,69 @@ private fun MessageBubble(
         )
     }
 
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp),
-        horizontalArrangement = if (message.isOwn) Arrangement.End else Arrangement.Start,
-    ) {
-        Surface(
-            shape = shape,
-            color = if (message.isOwn)
-                MaterialTheme.colorScheme.primary
-            else
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
-            modifier = Modifier.widthIn(max = 480.dp),
-            shadowElevation = if (message.isOwn) 2.dp else 0.dp,
+    Box {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 1.dp)
+                .combinedClickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = {},
+                    onLongClick = { 
+                        if (message.isOwn) {
+                            showMenu = true
+                        }
+                    },
+                ),
+            horizontalArrangement = if (message.isOwn) Arrangement.End else Arrangement.Start,
         ) {
-            Text(
-                text = message.text,
-                color = if (message.isOwn) MaterialTheme.colorScheme.onPrimary
-                        else MaterialTheme.colorScheme.onSurface,
-                style = MaterialTheme.typography.bodyLarge,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            Surface(
+                shape = shape,
+                color = if (message.isOwn)
+                    MaterialTheme.colorScheme.primary
+                else
+                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                modifier = Modifier.widthIn(max = 480.dp),
+                shadowElevation = if (message.isOwn) 2.dp else 0.dp,
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                    Text(
+                        text = message.text,
+                        color = if (message.isOwn) MaterialTheme.colorScheme.onPrimary
+                                else MaterialTheme.colorScheme.onSurface,
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    if (message.isEdited) {
+                        Text(
+                            text = "(ред.)",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (message.isOwn) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.6f)
+                                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            modifier = Modifier.align(Alignment.End),
+                        )
+                    }
+                }
+            }
+        }
+
+        DropdownMenu(
+            expanded = showMenu,
+            onDismissRequest = { showMenu = false },
+        ) {
+            DropdownMenuItem(
+                text = { Text("Редактировать") },
+                onClick = {
+                    showMenu = false
+                    onEdit?.invoke(message.id)
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("Удалить") },
+                onClick = {
+                    showMenu = false
+                    onDelete?.invoke(message.id)
+                },
             )
         }
     }
@@ -897,13 +1156,13 @@ private fun EmptyPane() {
                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
             )
             Text(
-                "Select a conversation to start chatting",
+                "Выберите диалог, чтобы начать чат",
                 style = MaterialTheme.typography.titleLarge,
                 color = MaterialTheme.colorScheme.onSurface,
                 fontWeight = FontWeight.Bold,
             )
             Text(
-                "All messages are end-to-end encrypted",
+                "Все сообщения защищены сквозным шифрованием",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
             )
@@ -917,7 +1176,7 @@ private fun SettingsGroupHeader(text: String, colors: ColorScheme) {
         text = text.uppercase(),
         style = MaterialTheme.typography.labelSmall,
         color = colors.onSurfaceVariant,
-        modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
     )
 }
 
@@ -930,31 +1189,35 @@ private fun SettingsTile(
     colors: ColorScheme,
     onClick: (() -> Unit)? = null,
     trailing: @Composable (() -> Unit)? = null,
+    shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(28.dp),
 ) {
     val clickableModifier = if (onClick != null) {
         Modifier.clickable(onClick = onClick)
     } else {
         Modifier
     }
+
+    val iconTint = if (iconContainerColor.luminance() > 0.5f) Color.Black else Color.White
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 2.dp),
-        shape = RoundedCornerShape(28.dp),
+            .padding(horizontal = 16.dp),
+        shape = shape,
         color = colors.surfaceContainer,
     ) {
         Row(
             modifier = clickableModifier
-                .padding(16.dp),
+                .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Surface(
-                modifier = Modifier.size(40.dp),
-                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.size(36.dp),
+                shape = RoundedCornerShape(10.dp),
                 color = iconContainerColor,
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Icon(icon, null, tint = Color.White, modifier = Modifier.size(20.dp))
+                    Icon(icon, null, tint = iconTint, modifier = Modifier.size(18.dp))
                 }
             }
 
@@ -964,14 +1227,20 @@ private fun SettingsTile(
                 Text(
                     title,
                     color = colors.onSurface,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    style = MaterialTheme.typography.bodyLarge.copy(
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 15.sp
+                    ),
                 )
-                Text(
-                    subtitle,
-                    color = colors.onSurfaceVariant,
-                    fontSize = 13.sp,
-                )
+                if (subtitle.isNotEmpty()) {
+                    Text(
+                        subtitle,
+                        color = colors.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontSize = 12.sp
+                        ),
+                    )
+                }
             }
 
             if (trailing != null) {
@@ -988,14 +1257,28 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
     val colors = MaterialTheme.colorScheme
 
     val presetColors = listOf(
-        0xFF2196F3.toInt() to "Синий",
+        0xFF6750A4.toInt() to "Стандартный",
+        0xFF3B5BA9.toInt() to "Синий океан",
+        0xFF006A6A.toInt() to "Морской",
+        0xFF386A20.toInt() to "Травяной",
+        0xFF695F00.toInt() to "Песочный",
+        0xFFBA1A1A.toInt() to "Кирпичный",
+        0xFF2196F3.toInt() to "Классический синий",
+        0xFF007AFF.toInt() to "Яркий синий",
+        0xFF5856D6.toInt() to "Индиго",
         0xFF9C27B0.toInt() to "Фиолетовый",
         0xFFE91E63.toInt() to "Розовый",
-        0xFF4CAF50.toInt() to "Зелёный",
-        0xFFFF9800.toInt() to "Оранжевый",
+        0xFFFF2D55.toInt() to "Малиновый",
         0xFFF44336.toInt() to "Красный",
+        0xFFFF9500.toInt() to "Яркий оранжевый",
+        0xFFFF9800.toInt() to "Оранжевый",
+        0xFFFFCC00.toInt() to "Жёлтый",
+        0xFF4CAF50.toInt() to "Зелёный",
+        0xFF28CD41.toInt() to "Яркий зелёный",
         0xFF00BCD4.toInt() to "Голубой",
+        0xFF5AC8FA.toInt() to "Светло-голубой",
         0xFF607D8B.toInt() to "Серый",
+        0xFF8E8E93.toInt() to "Светло-серый",
         0xFF795548.toInt() to "Коричневый",
         0xFF000000.toInt() to "Чёрный",
     )
@@ -1027,20 +1310,55 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(56.dp)
+                                .size(72.dp)
                                 .clip(CircleShape)
-                                .background(colors.primaryContainer),
+                                .clickable(enabled = !state.avatarUploading) {
+                                    selectImageFile { path ->
+                                        path?.let {
+                                            viewModel.updateAvatar(it)
+                                        }
+                                    }
+                                },
                             contentAlignment = Alignment.Center,
                         ) {
-                            Text(
-                                text = state.username.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
-                                style = MaterialTheme.typography.titleLarge,
-                                color = colors.onPrimaryContainer,
-                                fontWeight = FontWeight.Bold,
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(colors.primaryContainer, CircleShape)
+                                    .border(
+                                        if (state.avatarUploading) 3.dp else 0.dp,
+                                        colors.primary,
+                                        CircleShape
+                                    ),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                if (state.avatarUploading) {
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        CircularWavyProgressIndicator(
+                                            modifier = Modifier.size(48.dp),
+                                            color = colors.primary,
+                                        )
+                                    }
+                                } else {
+                                    AvatarBox(state.username, state.avatars[state.username], 72)
+                                }
+                            }
+                            Icon(
+                                Icons.Default.CameraAlt,
+                                contentDescription = "Сменить фото",
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .size(24.dp)
+                                    .background(colors.primary, CircleShape)
+                                    .padding(4.dp),
+                                tint = colors.onPrimary,
                             )
                         }
                         Spacer(Modifier.width(16.dp))
-                        Column {
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = state.username,
                                 style = MaterialTheme.typography.titleMedium,
@@ -1048,11 +1366,12 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
                                 color = colors.onSurface,
                             )
                             Row(verticalAlignment = Alignment.CenterVertically) {
+                                val onlineColor = if (colors.surface.luminance() > 0.5f) Color(0xFF2E7D32) else Color(0xFF4CAF50)
                                 Box(
                                     modifier = Modifier
                                         .size(8.dp)
                                         .clip(CircleShape)
-                                        .background(Color(0xFF4CAF50)),
+                                        .background(onlineColor),
                                 )
                                 Spacer(Modifier.width(6.dp))
                                 Text(
@@ -1061,6 +1380,12 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
                                     color = colors.onSurfaceVariant,
                                 )
                             }
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = "Нажмите на фото для смены",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = colors.primary,
+                            )
                         }
                     }
                 }
@@ -1070,10 +1395,57 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
 
             // ── Accent colour ─────────────────────────────────────────────
             item {
-                SettingsGroupHeader("ЦВЕТ АКЦЕНТА", colors)
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "ЦВЕТ АКЦЕНТА",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = colors.primary,
+                        fontWeight = FontWeight.ExtraBold,
+                    )
+                    
+                    val currentColorName = presetColors.find { it.first == state.accentColor }?.second ?: "Пользовательский"
+                    Surface(
+                        color = colors.secondaryContainer,
+                        shape = CircleShape
+                    ) {
+                        Text(
+                            text = currentColorName,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = colors.onSecondaryContainer,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+                val carouselState = rememberCarouselState { presetColors.size }
+                val scope = rememberCoroutineScope()
                 HorizontalMultiBrowseCarousel(
-                    state = rememberCarouselState { presetColors.size },
-                    modifier = Modifier.fillMaxWidth().height(72.dp).padding(horizontal = 16.dp),
+                    state = carouselState,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(72.dp)
+                        .padding(horizontal = 16.dp)
+                        .pointerInput(Unit) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    if (event.type == PointerEventType.Scroll) {
+                                        val delta = event.changes.first().scrollDelta.y
+                                        if (delta != 0f) {
+                                            scope.launch {
+                                                carouselState.scrollBy(delta * 100f)
+                                            }
+                                            // Consume the event to prevent parent from scrolling
+                                            event.changes.forEach { it.consume() }
+                                        }
+                                    }
+                                }
+                            }
+                        },
                     preferredItemWidth = 64.dp,
                     itemSpacing = 4.dp,
                     minSmallItemWidth = 28.dp,
@@ -1091,10 +1463,11 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
                         contentAlignment = Alignment.Center,
                     ) {
                         if (isSelected) {
+                            val tint = if (Color(colorInt).luminance() > 0.5f) Color.Black else Color.White
                             Icon(
                                 Icons.Filled.Check,
                                 contentDescription = null,
-                                tint = Color.White,
+                                tint = tint,
                                 modifier = Modifier.size(22.dp),
                             )
                         }
@@ -1104,43 +1477,61 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
 
             item { Spacer(Modifier.height(20.dp)) }
 
-            // ── Text scale ────────────────────────────────────────────────
+            // ── Color Preset ─────────────────────────────────────────────
             item {
-                SettingsGroupHeader("РАЗМЕР ТЕКСТА", colors)
-                Surface(
-                    color = colors.surfaceContainer,
-                    shape = RoundedCornerShape(28.dp),
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                ) {
-                    Column(
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Row(
+                SettingsGroupHeader("ПРЕСЕТ ЦВЕТОВ", colors)
+                BoxWithConstraints(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                    val isMobile = maxWidth < MOBILE_BREAKPOINT
+                    if (isMobile) {
+                        Column(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Text("А", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
-                            Text("А", style = MaterialTheme.typography.titleLarge, color = colors.onSurfaceVariant)
+                            ColorPreset.entries.forEach { preset ->
+                                val isSelected = state.colorPreset == preset
+                                ToggleButton(
+                                    checked = isSelected,
+                                    onCheckedChange = { viewModel.onColorPresetChanged(preset) },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        text = when (preset) {
+                                            ColorPreset.DEFAULT -> "Стандартная"
+                                            ColorPreset.VIBRANT -> "Яркая"
+                                            ColorPreset.MUTED -> "Приглушённая"
+                                            ColorPreset.PASTEL -> "Пастельная"
+                                        }
+                                    )
+                                }
+                            }
                         }
-                        Slider(
-                            value = state.textScale,
-                            onValueChange = viewModel::onTextScaleChanged,
-                            valueRange = 0.8f..1.3f,
-                            steps = 4,
+                    } else {
+                        ButtonGroup(
                             modifier = Modifier.fillMaxWidth(),
-                        )
-                        Text(
-                            text = "Пример сообщения в чате",
-                            style = MaterialTheme.typography.bodyMedium.copy(
-                                fontSize = (14 * state.textScale).sp,
-                            ),
-                            color = colors.onSurfaceVariant,
-                        )
+                        ) {
+                            ColorPreset.entries.forEach { preset ->
+                                val isSelected = state.colorPreset == preset
+                                ToggleButton(
+                                    checked = isSelected,
+                                    onCheckedChange = { viewModel.onColorPresetChanged(preset) },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(
+                                        text = when (preset) {
+                                            ColorPreset.DEFAULT -> "Стандартная"
+                                            ColorPreset.VIBRANT -> "Яркая"
+                                            ColorPreset.MUTED -> "Приглушённая"
+                                            ColorPreset.PASTEL -> "Пастельная"
+                                        }
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
+
+            item { Spacer(Modifier.height(20.dp)) }
 
             item { Spacer(Modifier.height(20.dp)) }
 
@@ -1161,10 +1552,32 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Icon(Icons.Filled.BrightnessLow, contentDescription = null,
-                                tint = colors.onSurfaceVariant, modifier = Modifier.size(18.dp))
-                            Icon(Icons.Filled.BrightnessHigh, contentDescription = null,
-                                tint = colors.onSurfaceVariant, modifier = Modifier.size(18.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Filled.BrightnessLow, contentDescription = null,
+                                    tint = colors.onSurfaceVariant, modifier = Modifier.size(18.dp))
+                                if (state.contrast < 0.75f) {
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        "Трудно читать",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = colors.error,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (state.contrast > 1.25f) {
+                                    Text(
+                                        "Слишком ярко",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = colors.error,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                }
+                                Icon(Icons.Filled.BrightnessHigh, contentDescription = null,
+                                    tint = colors.onSurfaceVariant, modifier = Modifier.size(18.dp))
+                            }
                         }
                         Slider(
                             value = state.contrast,
@@ -1185,38 +1598,33 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
 
             // ── Privacy ───────────────────────────────────────────────────
             item {
-                SettingsGroupHeader("PRIVACY", colors)
+                SettingsGroupHeader("ПРИВАТНОСТЬ", colors)
                 SettingsTile(
                     icon = Icons.Filled.Public,
-                    iconContainerColor = Color(0xFF4A90D9),
-                    title = "Public Profile",
-                    subtitle = "Allow others to find you in discovery",
+                    iconContainerColor = colors.primary.copy(alpha = 0.8f),
+                    title = "Публичный профиль",
+                    subtitle = "Разрешить другим находить вас в поиске",
                     colors = colors,
+                    shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp, bottomStart = 4.dp, bottomEnd = 4.dp),
                     trailing = {
                         Switch(
                             checked = state.isPublic,
                             onCheckedChange = viewModel::onPublicStatusChanged,
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = Color.White,
-                                checkedTrackColor = colors.primary,
-                            ),
                         )
                     },
                 )
+                Spacer(Modifier.height(2.dp))
                 SettingsTile(
                     icon = Icons.Filled.Mic,
-                    iconContainerColor = Color(0xFF2E7D32),
-                    title = "Mic Input",
-                    subtitle = if (state.micEnabled) "Using real microphone" else "Simulated idle animation",
+                    iconContainerColor = colors.secondary.copy(alpha = 0.8f),
+                    title = "Микрофон",
+                    subtitle = if (state.micEnabled) "Используется реальный микрофон" else "Симуляция бездействия",
                     colors = colors,
+                    shape = RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 28.dp, bottomEnd = 28.dp),
                     trailing = {
                         Switch(
                             checked = state.micEnabled,
                             onCheckedChange = viewModel::onMicEnabledChanged,
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = Color.White,
-                                checkedTrackColor = colors.primary,
-                            ),
                         )
                     },
                 )
@@ -1229,10 +1637,11 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
                 SettingsGroupHeader("СЕРВЕР", colors)
                 SettingsTile(
                     icon = Icons.Filled.Cloud,
-                    iconContainerColor = Color(0xFF7B1FA2),
+                    iconContainerColor = colors.tertiaryContainer,
                     title = "Адрес сервера",
                     subtitle = state.serverUrl,
                     colors = colors,
+                    shape = RoundedCornerShape(28.dp),
                     onClick = { viewModel.openServerUrlDialog() },
                     trailing = {
                         IconButton(onClick = { viewModel.openServerUrlDialog() }) {
@@ -1253,10 +1662,11 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
                 SettingsGroupHeader("БЕЗОПАСНОСТЬ", colors)
                 SettingsTile(
                     icon = Icons.Outlined.Fingerprint,
-                    iconContainerColor = Color(0xFF00695C),
+                    iconContainerColor = colors.secondaryContainer,
                     title = "Отпечаток ключа",
                     subtitle = state.publicKeyFingerprint,
                     colors = colors,
+                    shape = RoundedCornerShape(28.dp),
                 )
             }
 
@@ -1266,11 +1676,12 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
             item {
                 SettingsGroupHeader("АККАУНТ", colors)
                 SettingsTile(
-                    icon = Icons.Outlined.Logout,
+                    icon = Icons.AutoMirrored.Outlined.Logout,
                     iconContainerColor = colors.errorContainer,
                     title = "Выйти из аккаунта",
-                    subtitle = "Disconnect and clear local data",
+                    subtitle = "Отключиться и очистить локальные данные",
                     colors = colors,
+                    shape = RoundedCornerShape(28.dp),
                     onClick = { viewModel.disconnect() },
                 )
             }
@@ -1377,88 +1788,141 @@ private fun ExpressiveMessageInput(
     onSendClick: () -> Unit,
     onAttachClick: () -> Unit,
     onVoiceClick: () -> Unit,
+    showEmojiPicker: Boolean,
+    onEmojiToggle: () -> Unit,
+    onEmojiSelected: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Surface(
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
-        tonalElevation = 0.dp,
-        modifier = modifier.fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp)
-            .clip(RoundedCornerShape(28.dp))
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f), RoundedCornerShape(28.dp)),
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
-        ) {
-            IconButton(
-                onClick = onAttachClick,
-                modifier = Modifier
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Add,
-                    contentDescription = "Attach file",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+    val textFieldState = rememberTextFieldState(text)
 
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(vertical = 8.dp, horizontal = 4.dp),
-            ) {
-                BasicTextField(
-                    value = text,
-                    onValueChange = onTextChange,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 24.dp, max = 150.dp),
-                    textStyle = MaterialTheme.typography.bodyLarge.copy(
-                        color = MaterialTheme.colorScheme.onSurface,
-                    ),
-                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                    decorationBox = { innerTextField ->
-                        if (text.isEmpty()) {
-                            Text(
-                                text = "Message...",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        innerTextField()
-                    },
-                )
-            }
-
-            IconButton(
-                onClick = {},
-                modifier = Modifier
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.Mood,
-                    contentDescription = "Emojis",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            Spacer(Modifier.width(4.dp))
-
-            val isTyping = text.isNotBlank()
-            IconButton(
-                onClick = { if (isTyping) onSendClick() else onVoiceClick() },
-                modifier = Modifier
-                    .size(40.dp)
-                    
-                    .clip(CircleShape)
-                    .background(if (isTyping) MaterialTheme.colorScheme.primary else Color.Transparent),
-            ) {
-                Icon(
-                    imageVector = if (isTyping) Icons.Rounded.Send else Icons.Default.Mic,
-                    contentDescription = if (isTyping) "Send message" else "Record voice",
-                    tint = if (isTyping) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp),
-                )
+    LaunchedEffect(text) {
+        if (textFieldState.text.toString() != text) {
+            if (text.isEmpty()) {
+                textFieldState.setTextAndPlaceCursorAtEnd("")
+            } else {
+                textFieldState.edit { replace(0, length, text) }
             }
         }
     }
+
+    LaunchedEffect(textFieldState.text) {
+        val currentText = textFieldState.text.toString()
+        if (currentText != text) {
+            onTextChange(currentText)
+        }
+    }
+    
+    Column(modifier = modifier) {
+        if (showEmojiPicker) {
+            EmojiPicker(
+                onEmojiSelected = onEmojiSelected,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 300.dp)
+            )
+        }
+        Surface(
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+            tonalElevation = 0.dp,
+            modifier = Modifier.fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+                .clip(RoundedCornerShape(28.dp))
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f), RoundedCornerShape(28.dp)),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
+            ) {
+                IconButton(
+                    onClick = onAttachClick,
+                    modifier = Modifier
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "Прикрепить файл",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(vertical = 8.dp, horizontal = 4.dp),
+                ) {
+                    BasicTextField(
+                        state = textFieldState,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 24.dp, max = 150.dp)
+                            .imePadding()
+                            .onKeyEvent { event ->
+                                if (event.key == Key.Enter && textFieldState.text.isNotBlank()) {
+                                    onSendClick()
+                                    true
+                                } else false
+                            },
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(
+                            color = MaterialTheme.colorScheme.onSurface,
+                        ),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        decorator = { innerTextField ->
+                            if (textFieldState.text.isEmpty()) {
+                                Text(
+                                    text = "Сообщение...",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            innerTextField()
+                        },
+                    )
+                }
+
+                IconButton(
+                    onClick = onEmojiToggle,
+                    modifier = Modifier
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Mood,
+                        contentDescription = "Эмодзи",
+                        tint = if (showEmojiPicker) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                Spacer(Modifier.width(4.dp))
+
+                val isTyping = textFieldState.text.isNotBlank()
+                IconButton(
+                    onClick = { if (isTyping) onSendClick() else onVoiceClick() },
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(if (isTyping) MaterialTheme.colorScheme.primary else Color.Transparent),
+                ) {
+                    Icon(
+                        imageVector = if (textFieldState.text.isNotBlank()) Icons.Rounded.Send else Icons.Default.Mic,
+                        contentDescription = if (isTyping) "Отправить сообщение" else "Записать голос",
+                        tint = if (isTyping) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmojiPicker(
+    onEmojiSelected: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val state = rememberEmojiPickerState()
+
+    EmojiPicker(
+        state = state,
+        onEmojiSelected = { emoji ->
+            onEmojiSelected(emoji.details.string)
+        },
+        modifier = modifier.heightIn(max = 350.dp),
+    )
 }

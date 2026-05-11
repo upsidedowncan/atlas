@@ -54,6 +54,20 @@ enum ClientFrame {
     },
     #[serde(rename = "fetch_public_users")]
     FetchPublicUsers,
+    #[serde(rename = "delete_conversation")]
+    DeleteConversation { peer: String },
+    #[serde(rename = "get_unread")]
+    GetUnread,
+    #[serde(rename = "clear_unread")]
+    ClearUnread { peer: String },
+    #[serde(rename = "update_avatar")]
+    UpdateAvatar { data: String },
+    #[serde(rename = "fetch_avatar")]
+    FetchAvatar { username: String },
+    #[serde(rename = "edit_message")]
+    EditMessage { id: String, payload: EncryptedPayload, sender_payload: EncryptedPayload },
+    #[serde(rename = "delete_message")]
+    DeleteMessage { id: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -105,6 +119,18 @@ enum ServerFrame {
     SearchResults { users: Vec<String> },
     #[serde(rename = "public_users")]
     PublicUsers { users: Vec<PublicUserInfo> },
+    #[serde(rename = "conversation_deleted")]
+    ConversationDeleted { peer: String },
+    #[serde(rename = "unread_counts")]
+    UnreadCounts { counts: HashMap<String, i32> },
+    #[serde(rename = "unread_cleared")]
+    UnreadCleared { peer: String },
+    #[serde(rename = "avatar_response")]
+    AvatarResponse { username: String, data: Option<String> },
+    #[serde(rename = "message_edited")]
+    MessageEdited { id: String, from: String, to: String, payload: EncryptedPayload, sender_payload: EncryptedPayload },
+    #[serde(rename = "message_deleted")]
+    MessageDeleted { id: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -387,7 +413,7 @@ async fn handle_message(
             Ok(())
         }
 
-        ClientFrame::Message { id, to, payload, sender_payload, timestamp_ms } => {
+            ClientFrame::Message { id, to, payload, sender_payload, timestamp_ms } => {
             let sender = username.as_ref().ok_or("Not authenticated")?;
             if to == "atlas" {
                 return Err("Cannot message 'atlas' user".into());
@@ -413,6 +439,11 @@ async fn handle_message(
                     timestamp_ms,
                 };
                 let _ = recipient.tx.send(Message::Text(serde_json::to_string(&msg)?.into()));
+            } else {
+                s.db.execute(
+                    "INSERT OR IGNORE INTO unread (id, from_user, to_user, timestamp_ms) VALUES (?, ?, ?, ?)",
+                    params![id, sender, to, timestamp_ms],
+                )?;
             }
 
             let msg_self = ServerFrame::MessageReceived {
@@ -424,6 +455,121 @@ async fn handle_message(
             };
             send_frame(tx, msg_self)?;
 
+            Ok(())
+        }
+
+        ClientFrame::DeleteConversation { peer } => {
+            let sender = username.as_ref().ok_or("Not authenticated")?;
+            s.db.execute(
+                "DELETE FROM messages WHERE (from_user = ? AND to_user = ?) OR (from_user = ? AND to_user = ?)",
+                params![sender, peer, peer, sender],
+            )?;
+            s.db.execute(
+                "DELETE FROM unread WHERE (to_user = ? AND from_user = ?) OR (to_user = ? AND from_user = ?)",
+                params![sender, peer, peer, sender],
+            )?;
+            send_frame(tx, ServerFrame::ConversationDeleted { peer })?;
+            Ok(())
+        }
+
+        ClientFrame::GetUnread => {
+            let sender = username.as_ref().ok_or("Not authenticated")?;
+            let mut stmt = s.db.prepare("SELECT from_user FROM unread WHERE to_user = ?")?;
+            let mut rows = stmt.query(params![sender])?;
+            let mut counts: HashMap<String, i32> = HashMap::new();
+            while let Some(row) = rows.next()? {
+                let from: String = row.get(0)?;
+                *counts.entry(from).or_insert(0) += 1;
+            }
+            send_frame(tx, ServerFrame::UnreadCounts { counts })?;
+            Ok(())
+        }
+
+        ClientFrame::ClearUnread { peer } => {
+            let sender = username.as_ref().ok_or("Not authenticated")?;
+            s.db.execute(
+                "DELETE FROM unread WHERE to_user = ? AND from_user = ?",
+                params![sender, peer],
+            )?;
+            send_frame(tx, ServerFrame::UnreadCleared { peer })?;
+            Ok(())
+        }
+
+        ClientFrame::UpdateAvatar { data } => {
+            let sender = username.as_ref().ok_or("Not authenticated")?;
+            s.db.execute(
+                "UPDATE users SET avatar_url = ? WHERE username = ?",
+                params![data, sender],
+            )?;
+            send_frame(tx, ServerFrame::AvatarResponse {
+                username: sender.clone(),
+                data: Some(data),
+            })?;
+            Ok(())
+        }
+
+        ClientFrame::FetchAvatar { username: target } => {
+            let _sender = username.as_ref().ok_or("Not authenticated")?;
+            let avatar_url: Option<String> = s.db.query_row(
+                "SELECT avatar_url FROM users WHERE username = ?",
+                [&target],
+                |row| row.get(0),
+            ).ok();
+            send_frame(tx, ServerFrame::AvatarResponse {
+                username: target,
+                data: avatar_url,
+            })?;
+            Ok(())
+        }
+
+        ClientFrame::EditMessage { id, payload, sender_payload } => {
+            let sender = username.as_ref().ok_or("Not authenticated")?;
+            
+            s.db.execute(
+                "UPDATE messages SET encrypted_key = ?, iv = ?, ciphertext = ?, tag = ?, sender_encrypted_key = ?, sender_iv = ?, sender_ciphertext = ?, sender_tag = ? WHERE id = ? AND from_user = ?",
+                params![
+                    payload.encrypted_key, payload.iv, payload.ciphertext, payload.tag,
+                    sender_payload.encrypted_key, sender_payload.iv, sender_payload.ciphertext, sender_payload.tag,
+                    id, sender,
+                ],
+            )?;
+
+            s.db.query_row::<(String, String), _, _>(
+                "SELECT from_user, to_user FROM messages WHERE id = ?",
+                [&id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            ).ok().map(|(from, to)| {
+                let _ = send_frame(tx, ServerFrame::MessageEdited {
+                    id: id.clone(),
+                    from: from.clone(),
+                    to: to.clone(),
+                    payload: payload.clone(),
+                    sender_payload: sender_payload.clone(),
+                });
+                if let Some(recipient) = s.online.get(&if from == *sender { to.clone() } else { from.clone() }) {
+                    let _ = recipient.tx.send(Message::Text(serde_json::to_string(&ServerFrame::MessageEdited {
+                        id: id.clone(),
+                        from: from.clone(),
+                        to: if from == *sender { to.clone() } else { to },
+                        payload: payload.clone(),
+                        sender_payload: sender_payload.clone(),
+                    }).unwrap().into()));
+                }
+            });
+
+            Ok(())
+        }
+
+        ClientFrame::DeleteMessage { id } => {
+            let sender = username.as_ref().ok_or("Not authenticated")?;
+            
+            s.db.execute(
+                "DELETE FROM messages WHERE id = ? AND from_user = ?",
+                params![id, sender],
+            )?;
+
+            let _ = send_frame(tx, ServerFrame::MessageDeleted { id: id.clone() });
+            
             Ok(())
         }
     }
@@ -484,14 +630,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let db = Connection::open("atlas.db")?;
     
     // Migration: Add is_public column if it doesn't exist
-    let _ = db.execute("ALTER TABLE users ADD COLUMN is_public INTEGER DEFAULT 0", []);
+    let _ = db.execute("ALTER TABLE users ADD COLUMN avatar_url TEXT DEFAULT NULL", []);
 
     db.execute_batch(
         "CREATE TABLE IF NOT EXISTS users (
             username TEXT PRIMARY KEY,
             password_hash TEXT NOT NULL,
             public_key TEXT NOT NULL,
-            is_public INTEGER DEFAULT 0
+            is_public INTEGER DEFAULT 0,
+            avatar_url TEXT DEFAULT NULL
         );
         CREATE TABLE IF NOT EXISTS messages (
             id TEXT PRIMARY KEY,
@@ -507,8 +654,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             sender_tag TEXT NOT NULL,
             timestamp_ms INTEGER NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS unread (
+            id TEXT PRIMARY KEY,
+            from_user TEXT NOT NULL,
+            to_user TEXT NOT NULL,
+            timestamp_ms INTEGER NOT NULL
+        );
         CREATE INDEX IF NOT EXISTS idx_messages_to_user ON messages(to_user);
-        CREATE INDEX IF NOT EXISTS idx_messages_from_user ON messages(from_user);"
+        CREATE INDEX IF NOT EXISTS idx_messages_from_user ON messages(from_user);
+        CREATE INDEX IF NOT EXISTS idx_unread_to_user ON unread(to_user);"
     )?;
 
     let state = Arc::new(Mutex::new(State::new(db)));

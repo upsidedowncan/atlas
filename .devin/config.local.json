@@ -9,7 +9,8 @@
       "Exec(ls)",
       "Exec(mkdir)",
       "Exec(rm)",
-      "Exec(java)"
+      "Exec(java)",
+      "Exec(sed)"
     ]
   }
 }

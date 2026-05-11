@@ -13,6 +13,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import atlas.messenger.generated.resources.RobotoFlex
 import atlas.messenger.generated.resources.Res
+import atlas.messenger.viewmodel.ColorPreset
 import org.jetbrains.compose.resources.Font
 
 private fun Color.toHsl(): Triple<Float, Float, Float> {
@@ -51,9 +52,20 @@ private fun hslToColor(h: Float, s: Float, l: Float): Color {
     return Color(r + m, g + m, b + m)
 }
 
-private fun generateColorScheme(accentHex: Int, contrast: Float): androidx.compose.material3.ColorScheme {
+private fun generateColorScheme(accentHex: Int, contrast: Float, preset: ColorPreset): androidx.compose.material3.ColorScheme {
     val accent = Color(accentHex)
-    val (hue, sat, lit) = accent.toHsl()
+    val (hue, rawSat, rawLit) = accent.toHsl()
+    
+    val (sat, lit) = when (preset) {
+        ColorPreset.DEFAULT -> Pair(rawSat, rawLit)
+        ColorPreset.VIBRANT -> Pair(
+            (rawSat * 2.0f).coerceIn(0.9f, 1.0f),
+            (rawLit * 0.85f).coerceIn(0.25f, 0.5f)
+        )
+        ColorPreset.MUTED -> Pair(rawSat * 0.4f, rawLit * 0.9f)
+        ColorPreset.PASTEL -> Pair(rawSat * 0.3f, (rawLit * 1.2f).coerceIn(0.7f, 0.9f))
+    }
+
     val t = (contrast - 1.0f).coerceIn(-0.5f, 0.5f) / 0.5f
 
     fun dark(h: Float, s: Float, l: Float) = hslToColor(h, s, l)
@@ -68,7 +80,7 @@ private fun generateColorScheme(accentHex: Int, contrast: Float): androidx.compo
     val primaryL = light(hue, sat * 0.9f, 0.40f)
     val primary = mix(primaryD, primaryL)
 
-    val onPrimaryD = Color.White
+    val onPrimaryD = dark(hue, sat * 0.1f, 0.15f)
     val onPrimaryL = Color.White
     val onPrimary = mix(onPrimaryD, onPrimaryL)
 
@@ -84,7 +96,7 @@ private fun generateColorScheme(accentHex: Int, contrast: Float): androidx.compo
     val secondaryL = light(hue, sat * 0.2f, 0.4f)
     val secondary = mix(secondaryD, secondaryL)
 
-    val onSecondaryD = Color.White
+    val onSecondaryD = dark(hue, sat * 0.1f, 0.15f)
     val onSecondaryL = Color.White
     val onSecondary = mix(onSecondaryD, onSecondaryL)
 
@@ -97,7 +109,7 @@ private fun generateColorScheme(accentHex: Int, contrast: Float): androidx.compo
     val onSecondaryContainer = mix(onSecondaryContainerD, onSecondaryContainerL)
 
     val backgroundD = dark(hue, sat * 0.05f, 0.05f)
-    val backgroundL = light(hue, sat * 0.04f, 0.98f)
+    val backgroundL = Color.White
     val background = mix(backgroundD, backgroundL)
 
     val surfaceD = dark(hue, sat * 0.08f, 0.10f)
@@ -109,7 +121,7 @@ private fun generateColorScheme(accentHex: Int, contrast: Float): androidx.compo
     val surfaceVariant = mix(surfaceVariantD, surfaceVariantL)
 
     val surfaceContainerD = dark(hue, sat * 0.1f, 0.12f)
-    val surfaceContainerL = light(hue, sat * 0.05f, 0.98f)
+    val surfaceContainerL = light(hue, sat * 0.05f, 0.94f)
     val surfaceContainer = mix(surfaceContainerD, surfaceContainerL)
 
     val onSurfaceD = Color.White
@@ -207,7 +219,7 @@ private fun robotoFlexFamily() = FontFamily(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AtlasAppTheme(textScale: Float = 1.0f, accentColor: Int = 0xFF2196F3.toInt(), contrast: Float = 1.0f, content: @Composable () -> Unit) {
+fun AtlasAppTheme(textScale: Float = 1.0f, accentColor: Int = 0xFF2196F3.toInt(), contrast: Float = 1.0f, colorPreset: ColorPreset = ColorPreset.VIBRANT, content: @Composable () -> Unit) {
     val rf = robotoFlexFamily()
 
     val typography = remember(textScale) {
@@ -226,7 +238,7 @@ fun AtlasAppTheme(textScale: Float = 1.0f, accentColor: Int = 0xFF2196F3.toInt()
     }
 
     MaterialTheme(
-        colorScheme = generateColorScheme(accentColor, contrast),
+        colorScheme = generateColorScheme(accentColor, contrast, colorPreset),
         typography  = typography,
         content     = content,
     )

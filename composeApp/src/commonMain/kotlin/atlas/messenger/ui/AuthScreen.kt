@@ -51,7 +51,7 @@ fun AuthScreen(viewModel: ChatViewModel) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 MorphingLoadingIndicator(modifier = Modifier.size(64.dp), color = colors.primary)
                 Spacer(Modifier.height(24.dp))
-                Text("Connecting to Atlas...", style = MaterialTheme.typography.bodyLarge, color = colors.onSurfaceVariant)
+                Text("Подключение к Atlas...", style = MaterialTheme.typography.bodyLarge, color = colors.onSurfaceVariant)
             }
         } else {
             // Settings Button (Server URL)
@@ -70,7 +70,7 @@ fun AuthScreen(viewModel: ChatViewModel) {
                 ) {
                     Icon(
                         imageVector = Icons.Default.Settings,
-                        contentDescription = "Settings",
+                        contentDescription = "Настройки",
                         tint = colors.onSurface,
                     )
                 }
@@ -92,7 +92,7 @@ fun AuthScreen(viewModel: ChatViewModel) {
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
+                            contentDescription = "Назад",
                             tint = colors.onSurface,
                         )
                     }
@@ -177,7 +177,7 @@ private fun WelcomeStep(onGetStarted: () -> Unit, colors: ColorScheme) {
     Spacer(Modifier.height(12.dp))
 
     Text(
-        text = "Experience the next level of private messaging. Fast, secure, and beautiful.",
+        text = "Приватный мессенджер нового уровня. Быстрый, безопасный и красивый.",
         style = MaterialTheme.typography.bodyLarge,
         color = colors.onSurfaceVariant,
         textAlign = TextAlign.Center,
@@ -191,7 +191,7 @@ private fun WelcomeStep(onGetStarted: () -> Unit, colors: ColorScheme) {
         modifier = Modifier.fillMaxWidth().height(64.dp),
         shape = RoundedCornerShape(20.dp),
     ) {
-        Text("Get Started", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text("Начать", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Spacer(Modifier.width(8.dp))
         Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null)
     }
@@ -205,7 +205,7 @@ private fun UsernameStep(
     colors: ColorScheme
 ) {
     Text(
-        text = "What's your name?",
+        text = "Как вас зовут?",
         style = MaterialTheme.typography.headlineSmall,
         color = colors.onSurface,
         fontWeight = FontWeight.Bold,
@@ -215,7 +215,7 @@ private fun UsernameStep(
     Spacer(Modifier.height(8.dp))
 
     Text(
-        text = "Pick a unique username for your Atlas account.",
+        text = "Выберите уникальное имя пользователя для вашего аккаунта Atlas.",
         style = MaterialTheme.typography.bodyMedium,
         color = colors.onSurfaceVariant,
         textAlign = TextAlign.Center
@@ -226,7 +226,7 @@ private fun UsernameStep(
     OutlinedTextField(
         value = username,
         onValueChange = onUsernameChanged,
-        placeholder = { Text("Username") },
+        placeholder = { Text("Имя пользователя") },
         singleLine = true,
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
         keyboardActions = KeyboardActions(onNext = { onNext() }),
@@ -247,7 +247,7 @@ private fun UsernameStep(
         modifier = Modifier.fillMaxWidth().height(56.dp),
         shape = RoundedCornerShape(16.dp),
     ) {
-        Text("Continue", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text("Продолжить", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -259,7 +259,7 @@ private fun PasswordStep(
     colors: ColorScheme
 ) {
     Text(
-        text = if (state.isRegistering) "Create a password" else "Welcome back!",
+        text = if (state.isRegistering) "Придумайте пароль" else "С возвращением!",
         style = MaterialTheme.typography.headlineSmall,
         color = colors.onSurface,
         fontWeight = FontWeight.Bold,
@@ -270,8 +270,8 @@ private fun PasswordStep(
 
     Text(
         text = if (state.isRegistering) 
-            "Make sure it's strong. We use this to encrypt your local keys." 
-            else "Enter your password to continue as @${state.username}",
+            "Убедитесь, что он надёжный. Мы используем его для шифрования ваших локальных ключей." 
+            else "Введите пароль, чтобы продолжить как @${state.username}",
         style = MaterialTheme.typography.bodyMedium,
         color = colors.onSurfaceVariant,
         textAlign = TextAlign.Center
@@ -292,7 +292,7 @@ private fun PasswordStep(
                             activeContentColor = colors.onPrimary,
                         )
                     ) {
-                        Text("Sign In", style = MaterialTheme.typography.labelLarge)
+                        Text("Вход", style = MaterialTheme.typography.labelLarge)
                     }
                     SegmentedButton(
                         selected = state.isRegistering,
@@ -304,7 +304,7 @@ private fun PasswordStep(
                             activeContentColor = colors.onPrimary,
                         )
                     ) {
-                        Text("Register", style = MaterialTheme.typography.labelLarge)
+                        Text("Регистрация", style = MaterialTheme.typography.labelLarge)
                     }
                 }
 
@@ -313,7 +313,7 @@ private fun PasswordStep(
     OutlinedTextField(
         value = state.passwordInput,
         onValueChange = viewModel::onPasswordChanged,
-        placeholder = { Text("Password") },
+        placeholder = { Text("Пароль") },
         singleLine = true,
         visualTransformation = PasswordVisualTransformation(),
         keyboardOptions = KeyboardOptions(
@@ -357,7 +357,7 @@ private fun PasswordStep(
             )
         } else {
             Text(
-                if (state.isRegistering) "Create Account" else "Sign In",
+                if (state.isRegistering) "Создать аккаунт" else "Вход",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
             )

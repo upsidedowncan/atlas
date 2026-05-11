@@ -154,7 +154,7 @@ fun CallScreen(viewModel: ChatViewModel) {
                 )
 
                 Text(
-                    text = "SECURE AUDIO CALL",
+                    text = "ЗАЩИЩЁННЫЙ ЗВОНОК",
                     style = MaterialTheme.typography.labelLarge,
                     color = colors.primary,
                     fontWeight = FontWeight.Black,
@@ -173,7 +173,7 @@ fun CallScreen(viewModel: ChatViewModel) {
                 FloatingToolbarDefaults.VibrantFloatingActionButton(
                     onClick = viewModel::endCall,
                 ) {
-                    Icon(Icons.Default.CallEnd, contentDescription = "End Call")
+                    Icon(Icons.Default.CallEnd, contentDescription = "Завершить звонок")
                 }
             },
             modifier = Modifier
@@ -185,7 +185,7 @@ fun CallScreen(viewModel: ChatViewModel) {
             IconButton(onClick = { isMuted = !isMuted }) {
                 Icon(
                     imageVector = if (isMuted) Icons.Default.MicOff else Icons.Default.Mic,
-                    contentDescription = "Mute",
+                    contentDescription = "Отключить микрофон",
                 )
             }
             IconButton(onClick = { isSpeakerOn = !isSpeakerOn }) {
@@ -194,7 +194,7 @@ fun CallScreen(viewModel: ChatViewModel) {
                         Icons.AutoMirrored.Filled.VolumeUp
                     else
                         Icons.AutoMirrored.Filled.VolumeOff,
-                    contentDescription = "Speaker",
+                    contentDescription = "Динамик",
                 )
             }
         }
