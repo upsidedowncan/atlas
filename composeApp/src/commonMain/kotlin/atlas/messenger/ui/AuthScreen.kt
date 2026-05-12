@@ -15,7 +15,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -26,7 +25,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import atlas.messenger.ui.shapes.MorphingBackground
-import atlas.messenger.ui.shapes.MorphingLoadingIndicator
 import atlas.messenger.viewmodel.ChatViewModel
 
 enum class AuthStep { WELCOME, USERNAME, PASSWORD }
@@ -49,7 +47,10 @@ fun AuthScreen(viewModel: ChatViewModel) {
 
         if (state.isConnecting && currentStep == AuthStep.WELCOME) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                MorphingLoadingIndicator(modifier = Modifier.size(64.dp), color = colors.primary)
+                CircularWavyProgressIndicator(
+                    modifier = Modifier.size(64.dp),
+                    color = colors.primary,
+                )
                 Spacer(Modifier.height(24.dp))
                 Text("Подключение к Atlas...", style = MaterialTheme.typography.bodyLarge, color = colors.onSurfaceVariant)
             }
@@ -63,10 +64,8 @@ fun AuthScreen(viewModel: ChatViewModel) {
                 IconButton(
                     onClick = { viewModel.openServerUrlDialog() },
                     modifier = Modifier.align(Alignment.TopEnd)
-                        
                         .clip(CircleShape)
-                        .background(colors.surfaceVariant.copy(alpha = 0.5f))
-                        .blur(10.dp),
+                        .background(colors.surfaceContainerHigh),
                 ) {
                     Icon(
                         imageVector = Icons.Default.Settings,
@@ -85,10 +84,8 @@ fun AuthScreen(viewModel: ChatViewModel) {
                             }
                         },
                         modifier = Modifier.align(Alignment.TopStart)
-                            
                             .clip(CircleShape)
-                            .background(colors.surfaceVariant.copy(alpha = 0.5f))
-                            .blur(10.dp),
+                            .background(colors.surfaceContainerHigh),
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
@@ -170,7 +167,7 @@ private fun WelcomeStep(onGetStarted: () -> Unit, colors: ColorScheme) {
         style = MaterialTheme.typography.headlineLarge,
         color = colors.onSurface,
         fontWeight = FontWeight.Black,
-        letterSpacing = (-1.5).sp,
+        letterSpacing = 0.sp,
         fontSize = 48.sp
     )
 
@@ -251,7 +248,7 @@ private fun UsernameStep(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun PasswordStep(
     state: atlas.messenger.viewmodel.ChatUiState,
@@ -351,7 +348,7 @@ private fun PasswordStep(
         shape = RoundedCornerShape(16.dp),
     ) {
         if (state.isConnecting) {
-            MorphingLoadingIndicator(
+            CircularWavyProgressIndicator(
                 modifier = Modifier.size(24.dp),
                 color = colors.onPrimary,
             )

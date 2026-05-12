@@ -60,10 +60,12 @@ import coil3.compose.AsyncImage
 import atlas.messenger.data.ChatMessage
 import atlas.messenger.ui.shapes.AnimatedEmptyState
 import atlas.messenger.viewmodel.ChatViewModel
+import io.github.ismoy.imagepickerkmp.domain.extensions.loadBase64
+import io.github.ismoy.imagepickerkmp.domain.models.MimeType
+import io.github.ismoy.imagepickerkmp.presentation.ui.components.GalleryPickerLauncher
 import me.digitalby.emojipicker.EmojiPicker
 import me.digitalby.emojipicker.rememberEmojiPickerState
 import atlas.messenger.viewmodel.ColorPreset
-import kotlinx.coroutines.launch
 import androidx.compose.ui.text.font.FontStyle
 
 @Composable
@@ -127,7 +129,9 @@ private fun MobileMainScreen(viewModel: ChatViewModel) {
     val showChat = state.selectedPeer != null
     var selectedTab by remember { mutableStateOf(0) }
 
-    val totalUnread = state.unreadCounts.values.sum()
+    val totalUnread by remember(state.unreadCounts) {
+        derivedStateOf { state.unreadCounts.values.sum() }
+    }
 
     if (showChat) {
         ChatPane(viewModel = viewModel, showBackButton = true, onBack = viewModel::closeChat)
@@ -1255,6 +1259,7 @@ private fun SettingsTile(
 private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
     val state by viewModel.state.collectAsState()
     val colors = MaterialTheme.colorScheme
+    var showAvatarPicker by remember { mutableStateOf(false) }
 
     val presetColors = listOf(
         0xFF6750A4.toInt() to "Стандартный",
@@ -1283,113 +1288,133 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
         0xFF000000.toInt() to "Чёрный",
     )
 
-    Column(modifier = Modifier.fillMaxSize().background(colors.background)) {
-        if (showHeader) {
-            TopAppBar(
-                title = { Text("Настройки", fontWeight = FontWeight.SemiBold) },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = colors.surface,
+    Box(modifier = Modifier.fillMaxSize().background(colors.background)) {
+        if (showAvatarPicker) {
+            GalleryPickerLauncher(
+                onPhotosSelected = { photos ->
+                    showAvatarPicker = false
+                    val photo = photos.firstOrNull() ?: return@GalleryPickerLauncher
+                    val base64 = photo.loadBase64()
+                    val mimeType = photo.mimeType ?: "image/jpeg"
+                    viewModel.updateAvatar("data:$mimeType;base64,$base64")
+                },
+                onError = { showAvatarPicker = false },
+                onDismiss = { showAvatarPicker = false },
+                allowMultiple = false,
+                mimeTypes = listOf(
+                    MimeType.IMAGE_JPEG,
+                    MimeType.IMAGE_PNG,
+                    MimeType.IMAGE_WEBP,
+                    MimeType.IMAGE_HEIC,
+                    MimeType.IMAGE_HEIF,
+                    MimeType.IMAGE_BMP,
+                    MimeType.IMAGE_GIF,
                 ),
             )
         }
 
-        LazyColumn(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            if (showHeader) {
+                TopAppBar(
+                    title = { Text("Настройки", fontWeight = FontWeight.SemiBold) },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = colors.surface,
+                    ),
+                )
+            }
 
-            // ── Profile header ────────────────────────────────────────────
-            item {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    shape = RoundedCornerShape(28.dp),
-                    color = colors.surfaceContainer,
-                ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                // ── Profile header ────────────────────────────────────────────
+                item {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        shape = RoundedCornerShape(28.dp),
+                        color = colors.surfaceContainer,
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(72.dp)
-                                .clip(CircleShape)
-                                .clickable(enabled = !state.avatarUploading) {
-                                    selectImageFile { path ->
-                                        path?.let {
-                                            viewModel.updateAvatar(it)
-                                        }
-                                    }
-                                },
-                            contentAlignment = Alignment.Center,
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(colors.primaryContainer, CircleShape)
-                                    .border(
-                                        if (state.avatarUploading) 3.dp else 0.dp,
-                                        colors.primary,
-                                        CircleShape
-                                    ),
+                                    .size(72.dp)
+                                    .clip(CircleShape)
+                                    .clickable(enabled = !state.avatarUploading) {
+                                        showAvatarPicker = true
+                                    },
                                 contentAlignment = Alignment.Center,
                             ) {
-                                if (state.avatarUploading) {
-                                    Box(
-                                        modifier = Modifier.fillMaxSize(),
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        CircularWavyProgressIndicator(
-                                            modifier = Modifier.size(48.dp),
-                                            color = colors.primary,
-                                        )
-                                    }
-                                } else {
-                                    AvatarBox(state.username, state.avatars[state.username], 72)
-                                }
-                            }
-                            Icon(
-                                Icons.Default.CameraAlt,
-                                contentDescription = "Сменить фото",
-                                modifier = Modifier
-                                    .align(Alignment.BottomEnd)
-                                    .size(24.dp)
-                                    .background(colors.primary, CircleShape)
-                                    .padding(4.dp),
-                                tint = colors.onPrimary,
-                            )
-                        }
-                        Spacer(Modifier.width(16.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = state.username,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = colors.onSurface,
-                            )
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                val onlineColor = if (colors.surface.luminance() > 0.5f) Color(0xFF2E7D32) else Color(0xFF4CAF50)
                                 Box(
                                     modifier = Modifier
-                                        .size(8.dp)
-                                        .clip(CircleShape)
-                                        .background(onlineColor),
-                                )
-                                Spacer(Modifier.width(6.dp))
-                                Text(
-                                    text = "В сети",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = colors.onSurfaceVariant,
+                                        .fillMaxSize()
+                                        .background(colors.primaryContainer, CircleShape)
+                                        .border(
+                                            if (state.avatarUploading) 3.dp else 0.dp,
+                                            colors.primary,
+                                            CircleShape
+                                        ),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    if (state.avatarUploading) {
+                                        Box(
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            CircularWavyProgressIndicator(
+                                                modifier = Modifier.size(48.dp),
+                                                color = colors.primary,
+                                            )
+                                        }
+                                    } else {
+                                        AvatarBox(state.username, state.avatars[state.username], 72)
+                                    }
+                                }
+                                Icon(
+                                    Icons.Default.CameraAlt,
+                                    contentDescription = "Сменить фото",
+                                    modifier = Modifier
+                                        .align(Alignment.BottomEnd)
+                                        .size(24.dp)
+                                        .background(colors.primary, CircleShape)
+                                        .padding(4.dp),
+                                    tint = colors.onPrimary,
                                 )
                             }
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                text = "Нажмите на фото для смены",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = colors.primary,
-                            )
+                            Spacer(Modifier.width(16.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = state.username,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = colors.onSurface,
+                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    val onlineColor = if (colors.surface.luminance() > 0.5f) Color(0xFF2E7D32) else Color(0xFF4CAF50)
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .clip(CircleShape)
+                                            .background(onlineColor),
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        text = "В сети",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = colors.onSurfaceVariant,
+                                    )
+                                }
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    text = "Нажмите на фото для смены",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = colors.primary,
+                                )
+                            }
                         }
                     }
                 }
-            }
 
             item { Spacer(Modifier.height(8.dp)) }
 
@@ -1707,6 +1732,7 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
                     )
                 }
             }
+        }
         }
     }
 

@@ -72,6 +72,7 @@ class ChatViewModel : ViewModel() {
 
     private val recipientPublicKeys = mutableMapOf<String, String>()
     private val pendingKeyCallbacks = mutableMapOf<String, CompletableDeferred<String>>()
+    private val requestedAvatarUsers = mutableSetOf<String>()
 
     private var connectionJob: Job? = null
 
@@ -124,6 +125,7 @@ class ChatViewModel : ViewModel() {
                 conversations = if (peer in s.conversations) s.conversations else s.conversations + peer,
             )
         }
+        ensureAvatarLoaded(peer)
     }
 
     fun openSearch() {
@@ -148,7 +150,10 @@ class ChatViewModel : ViewModel() {
 
     fun openUserDiscovery() {
         _state.update { it.copy(showUserDiscovery = true) }
-        viewModelScope.launch { wsClient.fetchPublicUsers() }
+        viewModelScope.launch {
+            wsClient.fetchPublicUsers()
+            state.value.conversations.forEach { ensureAvatarLoaded(it) }
+        }
     }
 
     fun refreshPublicUsers() {
@@ -242,7 +247,7 @@ class ChatViewModel : ViewModel() {
     }
 
     fun fetchAvatar(username: String) {
-        viewModelScope.launch { wsClient.fetchAvatar(username) }
+        ensureAvatarLoaded(username, force = true)
     }
 
     fun onTextScaleChanged(scale: Float) {
@@ -423,14 +428,19 @@ class ChatViewModel : ViewModel() {
             is ServerEvent.AuthOk -> {
                 sessionStore.save(event.username, state.value.passwordInput)
                 _state.update {
+                    val switchedAccount = it.username != event.username
                     it.copy(
                         screen = Screen.CHAT,
+                        username = event.username,
                         isConnecting = false,
                         errorMessage = null,
-                        isPublic = event.isPublic
+                        isPublic = event.isPublic,
+                        avatars = if (switchedAccount) emptyMap() else it.avatars,
                     )
                 }
+                viewModelScope.launch { wsClient.fetchAvatar(event.username) }
                 viewModelScope.launch { wsClient.getUnread() }
+                requestedAvatarUsers.clear()
             }
 
             is ServerEvent.ServerError -> {
@@ -477,6 +487,7 @@ class ChatViewModel : ViewModel() {
                         messages = updatedMessages,
                     )
                 }
+                grouped.keys.forEach { ensureAvatarLoaded(it) }
             }
 
             is ServerEvent.MessageReceived -> {
@@ -510,6 +521,7 @@ class ChatViewModel : ViewModel() {
                             messages = updatedMessages,
                         )
                     }
+                    ensureAvatarLoaded(peer)
                 }.onFailure { e ->
                     _state.update { it.copy(errorMessage = "Ошибка расшифровки: ${e.message}") }
                 }
@@ -535,14 +547,17 @@ class ChatViewModel : ViewModel() {
                 _state.update { s ->
                     s.copy(onlineUsers = event.users.filter { it != s.username })
                 }
+                event.users.filter { it != state.value.username }.forEach { ensureAvatarLoaded(it) }
             }
 
             is ServerEvent.SearchResults -> {
                 _state.update { it.copy(searchResults = event.users) }
+                event.users.forEach { ensureAvatarLoaded(it) }
             }
 
             is ServerEvent.PublicUsersReceived -> {
                 _state.update { it.copy(publicUsers = event.users) }
+                event.users.forEach { user -> ensureAvatarLoaded(user.username) }
             }
 
             is ServerEvent.ConversationDeleted -> {
@@ -573,6 +588,7 @@ class ChatViewModel : ViewModel() {
             }
 
             is ServerEvent.AvatarResponse -> {
+                requestedAvatarUsers.remove(event.username)
                 val newAvatars = _state.value.avatars.toMutableMap()
                 newAvatars[event.username] = event.data
                 _state.update { it.copy(avatars = newAvatars) }
@@ -640,6 +656,17 @@ class ChatViewModel : ViewModel() {
             timestampMs = entry.timestampMs,
             isOwn = isOwn,
         )
+    }
+
+    private fun ensureAvatarLoaded(username: String, force: Boolean = false) {
+        val user = username.trim()
+        val me = state.value.username
+        if (user.isEmpty() || user == me) return
+        if (!force && (user in state.value.avatars || user in requestedAvatarUsers)) return
+        requestedAvatarUsers += user
+        viewModelScope.launch {
+            wsClient.fetchAvatar(user)
+        }
     }
 
     override fun onCleared() {

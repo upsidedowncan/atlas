@@ -224,8 +224,8 @@ fun AtlasAppTheme(textScale: Float = 1.0f, accentColor: Int = 0xFF2196F3.toInt()
 
     val typography = remember(textScale) {
         Typography(
-            headlineLarge = TextStyle(fontFamily = rf, fontWeight = FontWeight.Bold,     fontSize = 32.sp * textScale, letterSpacing = (-0.5).sp),
-            headlineMedium= TextStyle(fontFamily = rf, fontWeight = FontWeight.Bold,     fontSize = 28.sp * textScale, letterSpacing = (-0.2).sp),
+            headlineLarge = TextStyle(fontFamily = rf, fontWeight = FontWeight.Bold,     fontSize = 32.sp * textScale, letterSpacing = 0.sp),
+            headlineMedium= TextStyle(fontFamily = rf, fontWeight = FontWeight.Bold,     fontSize = 28.sp * textScale, letterSpacing = 0.sp),
             titleLarge    = TextStyle(fontFamily = rf, fontWeight = FontWeight.SemiBold, fontSize = 22.sp * textScale, letterSpacing = 0.sp),
             titleMedium   = TextStyle(fontFamily = rf, fontWeight = FontWeight.SemiBold, fontSize = 18.sp * textScale, letterSpacing = 0.1.sp),
             titleSmall    = TextStyle(fontFamily = rf, fontWeight = FontWeight.Medium,   fontSize = 14.sp * textScale, letterSpacing = 0.1.sp),

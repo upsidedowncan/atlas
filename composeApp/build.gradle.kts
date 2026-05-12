@@ -65,6 +65,7 @@ kotlin {
             implementation(libs.coil.compose)
             implementation(libs.coil.network.ktor)
             implementation(libs.kmp.emoji.picker)
+            implementation(libs.image.picker.kmp)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
