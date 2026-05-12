@@ -1,0 +1,94 @@
+name: Build Messenger
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  android:
+    name: Android compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Build Android debug APK
+        run: ./gradlew :composeApp:assembleDebug
+
+      - name: Upload Android debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-debug-apk
+          path: composeApp/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+  ios:
+    name: iOS compile
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Build iOS simulator framework
+        run: ./gradlew :composeApp:linkDebugFrameworkIosSimulatorArm64
+
+      - name: Archive iOS simulator framework
+        run: |
+          cd composeApp/build/bin/iosSimulatorArm64/debugFramework
+          zip -r ComposeApp-iosSimulatorArm64-debug.zip ComposeApp.framework
+
+      - name: Upload iOS simulator framework
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-framework
+          path: composeApp/build/bin/iosSimulatorArm64/debugFramework/ComposeApp-iosSimulatorArm64-debug.zip
+          if-no-files-found: error
+
+  desktop:
+    name: Desktop compile (${{ matrix.os_name }})
+    runs-on: ${{ matrix.runs_on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os_name: Linux
+            runs_on: ubuntu-latest
+          - os_name: Windows
+            runs_on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Compile Desktop target
+        shell: bash
+        run: ./gradlew :composeApp:compileKotlinJvm :composeApp:jvmJar
+
+      - name: Upload Desktop JVM jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-jvm-jar-${{ matrix.os_name }}
+          path: composeApp/build/libs/*.jar
+          if-no-files-found: error
