@@ -1,0 +1,68 @@
+name: Build Messenger
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  android:
+    name: Android compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Build Android debug APK
+        run: ./gradlew :composeApp:assembleDebug
+
+  ios:
+    name: iOS compile
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Build iOS simulator framework
+        run: ./gradlew :composeApp:linkDebugFrameworkIosSimulatorArm64
+
+  desktop:
+    name: Desktop compile (${{ matrix.os_name }})
+    runs-on: ${{ matrix.runs_on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os_name: Linux
+            runs_on: ubuntu-latest
+          - os_name: Windows
+            runs_on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Compile Desktop target
+        shell: bash
+        run: ./gradlew :composeApp:compileKotlinJvm :composeApp:jvmJar
