@@ -1267,6 +1267,9 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
     val state by viewModel.state.collectAsState()
     val colors = MaterialTheme.colorScheme
     var showAvatarPicker by remember { mutableStateOf(false) }
+    val onAtlasTextChanged: (String) -> Unit = { newValue -> viewModel.onAtlasBroadcastTextChanged(newValue) }
+    val onAtlasImageChanged: (String) -> Unit = { newValue -> viewModel.onAtlasBroadcastImageUrlChanged(newValue) }
+    val sendAtlasDialog: () -> Unit = { viewModel.sendAtlasBroadcastDialog() }
 
     val presetColors = listOf(
         0xFF6750A4.toInt() to "Стандартный",
