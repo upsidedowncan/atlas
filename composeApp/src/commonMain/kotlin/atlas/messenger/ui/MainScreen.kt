@@ -134,6 +134,9 @@ private fun MobileMainScreen(viewModel: ChatViewModel) {
     }
 
     if (showChat) {
+        PlatformBackHandler(enabled = true) {
+            viewModel.closeChat()
+        }
         ChatPane(viewModel = viewModel, showBackButton = true, onBack = viewModel::closeChat)
         return
     }
@@ -182,6 +185,22 @@ private fun MobileMainScreen(viewModel: ChatViewModel) {
                         indicatorColor = colors.primaryContainer,
                     ),
                 )
+                if (state.username == "atlas") {
+                    NavigationBarItem(
+                        selected = selectedTab == 2,
+                        onClick = { selectedTab = 2 },
+                        icon = { Icon(Icons.Default.Campaign, contentDescription = null) },
+                        label = { Text("Atlas") },
+                        modifier = Modifier,
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = colors.onPrimaryContainer,
+                            selectedTextColor = colors.primary,
+                            unselectedIconColor = colors.onSurfaceVariant,
+                            unselectedTextColor = colors.onSurfaceVariant,
+                            indicatorColor = colors.primaryContainer,
+                        ),
+                    )
+                }
             }
         },
     ) { padding ->
@@ -189,6 +208,50 @@ private fun MobileMainScreen(viewModel: ChatViewModel) {
             when (selectedTab) {
                 0 -> MobileConversationListTab(viewModel)
                 1 -> SettingsPane(viewModel, showHeader = true)
+                2 -> AtlasBroadcastTab(viewModel)
+            }
+        }
+    }
+}
+
+@Composable
+private fun AtlasBroadcastTab(viewModel: ChatViewModel) {
+    val state by viewModel.state.collectAsState()
+    if (state.username != "atlas") return
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        OutlinedTextField(
+            value = state.atlasBroadcastText,
+            onValueChange = { viewModel.onAtlasBroadcastTextChanged(it) },
+            label = { Text("Текст диалога") },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            value = state.atlasBroadcastImageUrl,
+            onValueChange = { viewModel.onAtlasBroadcastImageUrlChanged(it) },
+            label = { Text("Image URL (optional)") },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Button(onClick = { viewModel.sendAtlasBroadcastDialog() }, modifier = Modifier.align(Alignment.End)) {
+            Text("Отправить всем")
+        }
+        HorizontalDivider()
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(state.atlasDialogs) { dialog ->
+                ListItem(
+                    headlineContent = { Text(dialog.text) },
+                    supportingContent = {
+                        Column {
+                            Text(formatTime(dialog.timestampMs))
+                            dialog.imageUrl?.let {
+                                AsyncImage(
+                                    model = it,
+                                    contentDescription = "Dialog image",
+                                    modifier = Modifier.fillMaxWidth().height(160.dp),
+                                )
+                            }
+                        }
+                    },
+                )
             }
         }
     }
@@ -885,7 +948,10 @@ private fun ChatPane(
 
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
-            Surface(tonalElevation = 2.dp) {
+            Surface(
+                tonalElevation = 2.dp,
+                modifier = Modifier.statusBarsPadding(),
+            ) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -1694,6 +1760,8 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
                     shape = RoundedCornerShape(28.dp),
                 )
             }
+
+            item { Spacer(Modifier.height(20.dp)) }
 
             item { Spacer(Modifier.height(20.dp)) }
 

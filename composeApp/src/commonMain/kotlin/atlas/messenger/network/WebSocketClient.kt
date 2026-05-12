@@ -34,6 +34,7 @@ sealed class ServerEvent {
     data class AvatarResponse(val username: String, val data: String?) : ServerEvent()
     data class MessageEdited(val id: String, val from: String, val to: String, val payload: EncryptedPayload) : ServerEvent()
     data class MessageDeleted(val id: String) : ServerEvent()
+    data class AtlasDialogReceived(val id: String, val text: String, val imageUrl: String?, val timestampMs: Long) : ServerEvent()
 }
 
 data class HistoryEntry(
@@ -213,6 +214,16 @@ class WebSocketClient(private val httpClient: HttpClient) {
         })
     }
 
+    suspend fun sendAtlasDialog(id: String, text: String, imageUrl: String?, timestampMs: Long) {
+        sendRaw(buildJsonObject {
+            put("type", "atlas_broadcast_dialog")
+            put("id", id)
+            put("text", text)
+            put("timestampMs", timestampMs)
+            put("imageUrl", imageUrl)
+        })
+    }
+
     fun disconnect() {
         session?.let { s ->
             CoroutineScope(Dispatchers.Default).launch { s.close() }
@@ -342,6 +353,12 @@ class WebSocketClient(private val httpClient: HttpClient) {
                 }
                 "message_deleted" -> ServerEvent.MessageDeleted(
                     id = obj["id"]!!.jsonPrimitive.content,
+                )
+                "atlas_dialog" -> ServerEvent.AtlasDialogReceived(
+                    id = obj["id"]!!.jsonPrimitive.content,
+                    text = obj["text"]!!.jsonPrimitive.content,
+                    imageUrl = obj["imageUrl"]?.jsonPrimitive?.contentOrNull,
+                    timestampMs = obj["timestampMs"]!!.jsonPrimitive.long,
                 )
                 else -> return
             }

@@ -10,6 +10,7 @@ import atlas.messenger.network.ServerEvent
 import atlas.messenger.network.WebSocketClient
 import atlas.messenger.audio.createAudioLevelMonitor
 import atlas.messenger.session.SessionStore
+import atlas.messenger.session.UiPreferences
 import atlas.messenger.session.createSessionStore
 import io.ktor.client.*
 import io.ktor.client.plugins.websocket.*
@@ -54,7 +55,11 @@ data class ChatUiState(
     val showEmojiPicker: Boolean = false,
     val avatars: Map<String, String?> = emptyMap(),
     val avatarUploading: Boolean = false,
+    val atlasDialogs: List<AtlasDialog> = emptyList(),
+    val atlasBroadcastText: String = "",
+    val atlasBroadcastImageUrl: String = "",
 )
+data class AtlasDialog(val id: String, val text: String, val imageUrl: String?, val timestampMs: Long)
 
 enum class ColorPreset { DEFAULT, VIBRANT, MUTED, PASTEL }
 
@@ -82,6 +87,17 @@ class ChatViewModel : ViewModel() {
             // Auto-connect if credentials exist
             if (username.isNotBlank() && password.isNotBlank()) {
                 connect()
+            }
+        }
+        sessionStore.loadPreferences()?.let { prefs ->
+            _state.update {
+                it.copy(
+                    textScale = prefs.textScale,
+                    accentColor = prefs.accentColor,
+                    colorPreset = runCatching { ColorPreset.valueOf(prefs.colorPreset) }.getOrDefault(ColorPreset.DEFAULT),
+                    contrast = prefs.contrast,
+                    serverUrl = prefs.serverUrl,
+                )
             }
         }
         _state.update { it.copy(publicKeyFingerprint = computeFingerprint(encryption.publicKeyBase64)) }
@@ -252,10 +268,12 @@ class ChatViewModel : ViewModel() {
 
     fun onTextScaleChanged(scale: Float) {
         _state.update { it.copy(textScale = scale) }
+        persistPreferences()
     }
 
     fun onAccentColorChanged(color: Int) {
         _state.update { it.copy(accentColor = color) }
+        persistPreferences()
     }
 
     fun onColorPresetChanged(preset: ColorPreset) {
@@ -264,6 +282,7 @@ class ChatViewModel : ViewModel() {
                 ChatUiState(colorPreset = preset) 
             }
         }
+        persistPreferences()
     }
 
     fun onContrastChanged(contrast: Float) {
@@ -272,10 +291,37 @@ class ChatViewModel : ViewModel() {
                 ChatUiState(contrast = contrast) 
             }
         }
+        persistPreferences()
     }
 
     fun onServerUrlChanged(url: String) {
         _state.update { it.copy(serverUrl = url) }
+        persistPreferences()
+    }
+    fun onAtlasBroadcastTextChanged(value: String) { _state.update { it.copy(atlasBroadcastText = value) } }
+    fun onAtlasBroadcastImageUrlChanged(value: String) { _state.update { it.copy(atlasBroadcastImageUrl = value) } }
+    fun sendAtlasBroadcastDialog() {
+        val s = state.value
+        if (s.username != "atlas") return
+        val text = s.atlasBroadcastText.trim()
+        if (text.isEmpty()) return
+        viewModelScope.launch {
+            wsClient.sendAtlasDialog(Uuid.random().toString(), text, s.atlasBroadcastImageUrl.ifBlank { null }, currentTimeMs())
+            _state.update { it.copy(atlasBroadcastText = "", atlasBroadcastImageUrl = "") }
+        }
+    }
+
+    private fun persistPreferences() {
+        val s = state.value
+        sessionStore.savePreferences(
+            UiPreferences(
+                textScale = s.textScale,
+                accentColor = s.accentColor,
+                colorPreset = s.colorPreset.name,
+                contrast = s.contrast,
+                serverUrl = s.serverUrl,
+            ),
+        )
     }
 
     fun openServerUrlDialog() {
@@ -627,6 +673,12 @@ class ChatViewModel : ViewModel() {
                     }
                     val updatedMessages = if (s.selectedPeer != null) newAllMessages[s.selectedPeer] ?: s.messages else s.messages
                     s.copy(allMessages = newAllMessages, messages = updatedMessages)
+                }
+            }
+            is ServerEvent.AtlasDialogReceived -> {
+                _state.update {
+                    it.copy(atlasDialogs = (it.atlasDialogs + AtlasDialog(event.id, event.text, event.imageUrl, event.timestampMs))
+                        .sortedByDescending { d -> d.timestampMs })
                 }
             }
 
