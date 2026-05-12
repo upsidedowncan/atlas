@@ -134,6 +134,9 @@ private fun MobileMainScreen(viewModel: ChatViewModel) {
     }
 
     if (showChat) {
+        PlatformBackHandler(enabled = true) {
+            viewModel.closeChat()
+        }
         ChatPane(viewModel = viewModel, showBackButton = true, onBack = viewModel::closeChat)
         return
     }
@@ -885,7 +888,10 @@ private fun ChatPane(
 
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
-            Surface(tonalElevation = 2.dp) {
+            Surface(
+                tonalElevation = 2.dp,
+                modifier = Modifier.statusBarsPadding(),
+            ) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -1260,6 +1266,9 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
     val state by viewModel.state.collectAsState()
     val colors = MaterialTheme.colorScheme
     var showAvatarPicker by remember { mutableStateOf(false) }
+    val onAtlasTextChanged: (String) -> Unit = { newValue -> viewModel.onAtlasBroadcastTextChanged(newValue) }
+    val onAtlasImageChanged: (String) -> Unit = { newValue -> viewModel.onAtlasBroadcastImageUrlChanged(newValue) }
+    val sendAtlasDialog: () -> Unit = { viewModel.sendAtlasBroadcastDialog() }
 
     val presetColors = listOf(
         0xFF6750A4.toInt() to "Стандартный",
@@ -1693,6 +1702,49 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
                     colors = colors,
                     shape = RoundedCornerShape(28.dp),
                 )
+            }
+
+            item { Spacer(Modifier.height(20.dp)) }
+
+            if (state.username == "atlas") {
+                item {
+                    SettingsGroupHeader("ATLAS BROADCAST", colors)
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                        shape = RoundedCornerShape(20.dp),
+                        color = colors.surfaceContainer,
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = state.atlasBroadcastText,
+                                onValueChange = onAtlasTextChanged,
+                                label = { Text("Текст диалога") },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            OutlinedTextField(
+                                value = state.atlasBroadcastImageUrl,
+                                onValueChange = onAtlasImageChanged,
+                                label = { Text("Image URL (optional)") },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Button(onClick = sendAtlasDialog, modifier = Modifier.align(Alignment.End)) {
+                                Text("Отправить всем")
+                            }
+                        }
+                    }
+                }
+                items(state.atlasDialogs) { dialog ->
+                    ListItem(
+                        headlineContent = { Text(dialog.text) },
+                        supportingContent = {
+                            Column {
+                                Text(formatTime(dialog.timestampMs))
+                                dialog.imageUrl?.let { AsyncImage(model = it, contentDescription = "Dialog image", modifier = Modifier.fillMaxWidth().height(160.dp)) }
+                            }
+                        },
+                    )
+                }
+                item { Spacer(Modifier.height(20.dp)) }
             }
 
             item { Spacer(Modifier.height(20.dp)) }
