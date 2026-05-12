@@ -26,6 +26,13 @@ jobs:
       - name: Build Android debug APK
         run: ./gradlew :composeApp:assembleDebug
 
+      - name: Upload Android debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-debug-apk
+          path: composeApp/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
   ios:
     name: iOS compile
     runs-on: macos-latest
@@ -41,6 +48,18 @@ jobs:
 
       - name: Build iOS simulator framework
         run: ./gradlew :composeApp:linkDebugFrameworkIosSimulatorArm64
+
+      - name: Archive iOS simulator framework
+        run: |
+          cd composeApp/build/bin/iosSimulatorArm64/debugFramework
+          zip -r ComposeApp-iosSimulatorArm64-debug.zip ComposeApp.framework
+
+      - name: Upload iOS simulator framework
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-framework
+          path: composeApp/build/bin/iosSimulatorArm64/debugFramework/ComposeApp-iosSimulatorArm64-debug.zip
+          if-no-files-found: error
 
   desktop:
     name: Desktop compile (${{ matrix.os_name }})
@@ -66,3 +85,10 @@ jobs:
       - name: Compile Desktop target
         shell: bash
         run: ./gradlew :composeApp:compileKotlinJvm :composeApp:jvmJar
+
+      - name: Upload Desktop JVM jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-jvm-jar-${{ matrix.os_name }}
+          path: composeApp/build/libs/*.jar
+          if-no-files-found: error
