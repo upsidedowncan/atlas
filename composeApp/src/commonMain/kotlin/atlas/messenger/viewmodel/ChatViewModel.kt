@@ -55,7 +55,11 @@ data class ChatUiState(
     val showEmojiPicker: Boolean = false,
     val avatars: Map<String, String?> = emptyMap(),
     val avatarUploading: Boolean = false,
+    val atlasDialogs: List<AtlasDialog> = emptyList(),
+    val atlasBroadcastText: String = "",
+    val atlasBroadcastImageUrl: String = "",
 )
+data class AtlasDialog(val id: String, val text: String, val imageUrl: String?, val timestampMs: Long)
 
 enum class ColorPreset { DEFAULT, VIBRANT, MUTED, PASTEL }
 
@@ -657,6 +661,12 @@ class ChatViewModel : ViewModel() {
                     }
                     val updatedMessages = if (s.selectedPeer != null) newAllMessages[s.selectedPeer] ?: s.messages else s.messages
                     s.copy(allMessages = newAllMessages, messages = updatedMessages)
+                }
+            }
+            is ServerEvent.AtlasDialogReceived -> {
+                _state.update {
+                    it.copy(atlasDialogs = (it.atlasDialogs + AtlasDialog(event.id, event.text, event.imageUrl, event.timestampMs))
+                        .sortedByDescending { d -> d.timestampMs })
                 }
             }
 
