@@ -37,6 +37,7 @@ import androidx.compose.material3.*
 import androidx.compose.material3.carousel.HorizontalMultiBrowseCarousel
 import androidx.compose.material3.carousel.rememberCarouselState
 import androidx.compose.runtime.*
+import androidx.activity.compose.BackHandler
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -134,7 +135,7 @@ private fun MobileMainScreen(viewModel: ChatViewModel) {
     }
 
     if (showChat) {
-        PlatformBackHandler(enabled = true) {
+        BackHandler(enabled = true) {
             viewModel.closeChat()
         }
         ChatPane(viewModel = viewModel, showBackButton = true, onBack = viewModel::closeChat)
@@ -1266,6 +1267,9 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
     val state by viewModel.state.collectAsState()
     val colors = MaterialTheme.colorScheme
     var showAvatarPicker by remember { mutableStateOf(false) }
+    val onAtlasTextChanged: (String) -> Unit = { newValue -> viewModel.onAtlasBroadcastTextChanged(newValue) }
+    val onAtlasImageChanged: (String) -> Unit = { newValue -> viewModel.onAtlasBroadcastImageUrlChanged(newValue) }
+    val sendAtlasDialog: () -> Unit = { viewModel.sendAtlasBroadcastDialog() }
 
     val presetColors = listOf(
         0xFF6750A4.toInt() to "Стандартный",
@@ -1702,6 +1706,47 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
             }
 
             item { Spacer(Modifier.height(20.dp)) }
+
+            if (state.username == "atlas") {
+                item {
+                    SettingsGroupHeader("ATLAS BROADCAST", colors)
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                        shape = RoundedCornerShape(20.dp),
+                        color = colors.surfaceContainer,
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = state.atlasBroadcastText,
+                                onValueChange = viewModel::onAtlasBroadcastTextChanged,
+                                label = { Text("Текст диалога") },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            OutlinedTextField(
+                                value = state.atlasBroadcastImageUrl,
+                                onValueChange = viewModel::onAtlasBroadcastImageUrlChanged,
+                                label = { Text("Image URL (optional)") },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Button(onClick = viewModel::sendAtlasBroadcastDialog, modifier = Modifier.align(Alignment.End)) {
+                                Text("Отправить всем")
+                            }
+                        }
+                    }
+                }
+                items(state.atlasDialogs) { dialog ->
+                    ListItem(
+                        headlineContent = { Text(dialog.text) },
+                        supportingContent = {
+                            Column {
+                                Text(formatTime(dialog.timestampMs))
+                                dialog.imageUrl?.let { AsyncImage(model = it, contentDescription = "Dialog image", modifier = Modifier.fillMaxWidth().height(160.dp)) }
+                            }
+                        },
+                    )
+                }
+                item { Spacer(Modifier.height(20.dp)) }
+            }
 
             item { Spacer(Modifier.height(20.dp)) }
 

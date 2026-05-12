@@ -298,18 +298,6 @@ class ChatViewModel : ViewModel() {
         _state.update { it.copy(serverUrl = url) }
         persistPreferences()
     }
-    fun onAtlasBroadcastTextChanged(value: String) { _state.update { it.copy(atlasBroadcastText = value) } }
-    fun onAtlasBroadcastImageUrlChanged(value: String) { _state.update { it.copy(atlasBroadcastImageUrl = value) } }
-    fun sendAtlasBroadcastDialog() {
-        val s = state.value
-        if (s.username != "atlas") return
-        val text = s.atlasBroadcastText.trim()
-        if (text.isEmpty()) return
-        viewModelScope.launch {
-            wsClient.sendAtlasDialog(Uuid.random().toString(), text, s.atlasBroadcastImageUrl.ifBlank { null }, currentTimeMs())
-            _state.update { it.copy(atlasBroadcastText = "", atlasBroadcastImageUrl = "") }
-        }
-    }
 
     private fun persistPreferences() {
         val s = state.value
