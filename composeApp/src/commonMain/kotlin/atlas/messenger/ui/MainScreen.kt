@@ -37,7 +37,7 @@ import androidx.compose.material3.*
 import androidx.compose.material3.carousel.HorizontalMultiBrowseCarousel
 import androidx.compose.material3.carousel.rememberCarouselState
 import androidx.compose.runtime.*
-import androidx.compose.ui.backhandler.BackHandler
+import androidx.activity.compose.BackHandler
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
