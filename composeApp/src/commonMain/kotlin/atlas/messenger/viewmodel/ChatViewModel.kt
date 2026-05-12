@@ -10,6 +10,7 @@ import atlas.messenger.network.ServerEvent
 import atlas.messenger.network.WebSocketClient
 import atlas.messenger.audio.createAudioLevelMonitor
 import atlas.messenger.session.SessionStore
+import atlas.messenger.session.UiPreferences
 import atlas.messenger.session.createSessionStore
 import io.ktor.client.*
 import io.ktor.client.plugins.websocket.*
@@ -82,6 +83,17 @@ class ChatViewModel : ViewModel() {
             // Auto-connect if credentials exist
             if (username.isNotBlank() && password.isNotBlank()) {
                 connect()
+            }
+        }
+        sessionStore.loadPreferences()?.let { prefs ->
+            _state.update {
+                it.copy(
+                    textScale = prefs.textScale,
+                    accentColor = prefs.accentColor,
+                    colorPreset = runCatching { ColorPreset.valueOf(prefs.colorPreset) }.getOrDefault(ColorPreset.DEFAULT),
+                    contrast = prefs.contrast,
+                    serverUrl = prefs.serverUrl,
+                )
             }
         }
         _state.update { it.copy(publicKeyFingerprint = computeFingerprint(encryption.publicKeyBase64)) }
@@ -252,10 +264,12 @@ class ChatViewModel : ViewModel() {
 
     fun onTextScaleChanged(scale: Float) {
         _state.update { it.copy(textScale = scale) }
+        persistPreferences()
     }
 
     fun onAccentColorChanged(color: Int) {
         _state.update { it.copy(accentColor = color) }
+        persistPreferences()
     }
 
     fun onColorPresetChanged(preset: ColorPreset) {
@@ -264,6 +278,7 @@ class ChatViewModel : ViewModel() {
                 ChatUiState(colorPreset = preset) 
             }
         }
+        persistPreferences()
     }
 
     fun onContrastChanged(contrast: Float) {
@@ -272,10 +287,25 @@ class ChatViewModel : ViewModel() {
                 ChatUiState(contrast = contrast) 
             }
         }
+        persistPreferences()
     }
 
     fun onServerUrlChanged(url: String) {
         _state.update { it.copy(serverUrl = url) }
+        persistPreferences()
+    }
+
+    private fun persistPreferences() {
+        val s = state.value
+        sessionStore.savePreferences(
+            UiPreferences(
+                textScale = s.textScale,
+                accentColor = s.accentColor,
+                colorPreset = s.colorPreset.name,
+                contrast = s.contrast,
+                serverUrl = s.serverUrl,
+            ),
+        )
     }
 
     fun openServerUrlDialog() {
