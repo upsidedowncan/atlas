@@ -37,6 +37,7 @@ import androidx.compose.material3.*
 import androidx.compose.material3.carousel.HorizontalMultiBrowseCarousel
 import androidx.compose.material3.carousel.rememberCarouselState
 import androidx.compose.runtime.*
+import androidx.activity.compose.BackHandler
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -134,7 +135,7 @@ private fun MobileMainScreen(viewModel: ChatViewModel) {
     }
 
     if (showChat) {
-        PlatformBackHandler(enabled = true) {
+        BackHandler(enabled = true) {
             viewModel.closeChat()
         }
         ChatPane(viewModel = viewModel, showBackButton = true, onBack = viewModel::closeChat)
@@ -1717,17 +1718,17 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
                         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedTextField(
                                 value = state.atlasBroadcastText,
-                                onValueChange = onAtlasTextChanged,
+                                onValueChange = viewModel::onAtlasBroadcastTextChanged,
                                 label = { Text("Текст диалога") },
                                 modifier = Modifier.fillMaxWidth(),
                             )
                             OutlinedTextField(
                                 value = state.atlasBroadcastImageUrl,
-                                onValueChange = onAtlasImageChanged,
+                                onValueChange = viewModel::onAtlasBroadcastImageUrlChanged,
                                 label = { Text("Image URL (optional)") },
                                 modifier = Modifier.fillMaxWidth(),
                             )
-                            Button(onClick = sendAtlasDialog, modifier = Modifier.align(Alignment.End)) {
+                            Button(onClick = viewModel::sendAtlasBroadcastDialog, modifier = Modifier.align(Alignment.End)) {
                                 Text("Отправить всем")
                             }
                         }
