@@ -134,6 +134,9 @@ private fun MobileMainScreen(viewModel: ChatViewModel) {
     }
 
     if (showChat) {
+        PlatformBackHandler(enabled = true) {
+            viewModel.closeChat()
+        }
         ChatPane(viewModel = viewModel, showBackButton = true, onBack = viewModel::closeChat)
         return
     }
@@ -885,7 +888,10 @@ private fun ChatPane(
 
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
-            Surface(tonalElevation = 2.dp) {
+            Surface(
+                tonalElevation = 2.dp,
+                modifier = Modifier.statusBarsPadding(),
+            ) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -1694,6 +1700,8 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
                     shape = RoundedCornerShape(28.dp),
                 )
             }
+
+            item { Spacer(Modifier.height(20.dp)) }
 
             item { Spacer(Modifier.height(20.dp)) }
 

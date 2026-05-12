@@ -68,6 +68,8 @@ enum ClientFrame {
     EditMessage { id: String, payload: EncryptedPayload, sender_payload: EncryptedPayload },
     #[serde(rename = "delete_message")]
     DeleteMessage { id: String },
+    #[serde(rename = "atlas_broadcast_dialog")]
+    AtlasBroadcastDialog { id: String, text: String, #[serde(rename = "imageUrl")] image_url: Option<String>, #[serde(rename = "timestampMs")] timestamp_ms: i64 },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -131,6 +133,8 @@ enum ServerFrame {
     MessageEdited { id: String, from: String, to: String, payload: EncryptedPayload, sender_payload: EncryptedPayload },
     #[serde(rename = "message_deleted")]
     MessageDeleted { id: String },
+    #[serde(rename = "atlas_dialog")]
+    AtlasDialog { id: String, text: String, #[serde(rename = "imageUrl")] image_url: Option<String>, #[serde(rename = "timestampMs")] timestamp_ms: i64 },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -298,6 +302,7 @@ async fn handle_message(
             
             let history = fetch_history(&s.db, &uname)?;
             send_frame(tx, ServerFrame::MessageHistory { messages: history })?;
+            send_atlas_dialog_history(&s.db, tx)?;
 
             Ok(())
         }
@@ -343,6 +348,7 @@ async fn handle_message(
 
             let history = fetch_history(&s.db, &uname)?;
             send_frame(tx, ServerFrame::MessageHistory { messages: history })?;
+            send_atlas_dialog_history(&s.db, tx)?;
 
             Ok(())
         }
@@ -572,12 +578,45 @@ async fn handle_message(
             
             Ok(())
         }
+        ClientFrame::AtlasBroadcastDialog { id, text, image_url, timestamp_ms } => {
+            let sender = username.as_ref().ok_or("Not authenticated")?;
+            if sender != "atlas" {
+                return Err("Only 'atlas' can broadcast dialogs".into());
+            }
+            s.db.execute(
+                "INSERT OR IGNORE INTO atlas_dialogs (id, text, image_url, timestamp_ms) VALUES (?, ?, ?, ?)",
+                params![id, text, image_url, timestamp_ms],
+            )?;
+            let frame = ServerFrame::AtlasDialog { id, text, image_url, timestamp_ms };
+            let raw = serde_json::to_string(&frame)?;
+            for (_, user) in s.online.iter() {
+                let _ = user.tx.send(Message::Text(raw.clone().into()));
+            }
+            Ok(())
+        }
     }
 }
 
 fn send_frame(tx: &tokio::sync::mpsc::UnboundedSender<Message>, frame: ServerFrame) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let json = serde_json::to_string(&frame)?;
     tx.send(Message::Text(json.into()))?;
+    Ok(())
+}
+
+fn send_atlas_dialog_history(
+    db: &Connection,
+    tx: &tokio::sync::mpsc::UnboundedSender<Message>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let mut stmt = db.prepare("SELECT id, text, image_url, timestamp_ms FROM atlas_dialogs ORDER BY timestamp_ms ASC")?;
+    let mut rows = stmt.query([])?;
+    while let Some(row) = rows.next()? {
+        send_frame(tx, ServerFrame::AtlasDialog {
+            id: row.get(0)?,
+            text: row.get(1)?,
+            image_url: row.get(2)?,
+            timestamp_ms: row.get(3)?,
+        })?;
+    }
     Ok(())
 }
 
@@ -662,7 +701,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
         CREATE INDEX IF NOT EXISTS idx_messages_to_user ON messages(to_user);
         CREATE INDEX IF NOT EXISTS idx_messages_from_user ON messages(from_user);
-        CREATE INDEX IF NOT EXISTS idx_unread_to_user ON unread(to_user);"
+        CREATE INDEX IF NOT EXISTS idx_unread_to_user ON unread(to_user);
+        CREATE TABLE IF NOT EXISTS atlas_dialogs (
+            id TEXT PRIMARY KEY,
+            text TEXT NOT NULL,
+            image_url TEXT,
+            timestamp_ms INTEGER NOT NULL
+        );"
     )?;
 
     let state = Arc::new(Mutex::new(State::new(db)));
