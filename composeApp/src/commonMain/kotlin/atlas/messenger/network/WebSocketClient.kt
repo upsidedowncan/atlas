@@ -35,6 +35,12 @@ sealed class ServerEvent {
     data class MessageEdited(val id: String, val from: String, val to: String, val payload: EncryptedPayload) : ServerEvent()
     data class MessageDeleted(val id: String) : ServerEvent()
     data class AtlasDialogReceived(val id: String, val text: String, val imageUrl: String?, val timestampMs: Long) : ServerEvent()
+    data class AtlasMessageReceived(val id: String, val from: String, val text: String, val timestampMs: Long) : ServerEvent()
+    data class DisplayNamesReceived(val values: Map<String, String>) : ServerEvent()
+    data class DisplayNameUpdated(val username: String, val displayName: String) : ServerEvent()
+    data class AllUsersReceived(val users: List<String>) : ServerEvent()
+    data class ArchivedConversationsReceived(val peers: Set<String>) : ServerEvent()
+    data class ConversationArchiveUpdated(val peer: String, val archived: Boolean) : ServerEvent()
 }
 
 data class HistoryEntry(
@@ -133,10 +139,24 @@ class WebSocketClient(private val httpClient: HttpClient) {
         })
     }
 
+    suspend fun listAllUsers() {
+        sendRaw(buildJsonObject {
+            put("type", "list_all_users")
+        })
+    }
+
     suspend fun deleteConversation(peer: String) {
         sendRaw(buildJsonObject {
             put("type", "delete_conversation")
             put("peer", peer)
+        })
+    }
+
+    suspend fun archiveConversation(peer: String, archived: Boolean) {
+        sendRaw(buildJsonObject {
+            put("type", "archive_conversation")
+            put("peer", peer)
+            put("archived", archived)
         })
     }
 
@@ -221,6 +241,22 @@ class WebSocketClient(private val httpClient: HttpClient) {
             put("text", text)
             put("timestampMs", timestampMs)
             put("imageUrl", imageUrl)
+        })
+    }
+
+    suspend fun sendAtlasBroadcastMessage(id: String, text: String, timestampMs: Long) {
+        sendRaw(buildJsonObject {
+            put("type", "atlas_broadcast_message")
+            put("id", id)
+            put("text", text)
+            put("timestampMs", timestampMs)
+        })
+    }
+
+    suspend fun updateDisplayName(displayName: String) {
+        sendRaw(buildJsonObject {
+            put("type", "update_display_name")
+            put("displayName", displayName)
         })
     }
 
@@ -359,6 +395,32 @@ class WebSocketClient(private val httpClient: HttpClient) {
                     text = obj["text"]!!.jsonPrimitive.content,
                     imageUrl = obj["imageUrl"]?.jsonPrimitive?.contentOrNull,
                     timestampMs = obj["timestampMs"]!!.jsonPrimitive.long,
+                )
+                "atlas_message" -> ServerEvent.AtlasMessageReceived(
+                    id = obj["id"]!!.jsonPrimitive.content,
+                    from = obj["from"]!!.jsonPrimitive.content,
+                    text = obj["text"]!!.jsonPrimitive.content,
+                    timestampMs = obj["timestampMs"]!!.jsonPrimitive.long,
+                )
+                "display_names" -> {
+                    val values = obj["values"]!!.jsonObject.entries.associate { (username, value) ->
+                        username to value.jsonPrimitive.content
+                    }
+                    ServerEvent.DisplayNamesReceived(values)
+                }
+                "display_name_updated" -> ServerEvent.DisplayNameUpdated(
+                    username = obj["username"]!!.jsonPrimitive.content,
+                    displayName = obj["displayName"]!!.jsonPrimitive.content,
+                )
+                "all_users" -> ServerEvent.AllUsersReceived(
+                    users = obj["users"]!!.jsonArray.map { it.jsonPrimitive.content },
+                )
+                "archived_conversations" -> ServerEvent.ArchivedConversationsReceived(
+                    peers = obj["peers"]!!.jsonArray.map { it.jsonPrimitive.content }.toSet(),
+                )
+                "conversation_archive_updated" -> ServerEvent.ConversationArchiveUpdated(
+                    peer = obj["peer"]!!.jsonPrimitive.content,
+                    archived = obj["archived"]!!.jsonPrimitive.boolean,
                 )
                 else -> return
             }

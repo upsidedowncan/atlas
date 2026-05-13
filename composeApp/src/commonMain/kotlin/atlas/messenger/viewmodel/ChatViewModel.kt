@@ -27,6 +27,7 @@ data class ChatUiState(
     val passwordInput: String = "",
     val isRegistering: Boolean = false,
     val onlineUsers: List<String> = emptyList(),
+    val allUsers: List<String> = emptyList(),
     val conversations: List<String> = emptyList(),
     val selectedPeer: String? = null,
     val messages: List<ChatMessage> = emptyList(),
@@ -48,23 +49,40 @@ data class ChatUiState(
     val isPublic: Boolean = false,
     val publicUsers: List<atlas.messenger.data.PublicUserInfo> = emptyList(),
     val showUserDiscovery: Boolean = false,
+    val showAtlasBroadcast: Boolean = false,
     val activeCallPeer: String? = null,
     val callAudioLevel: Float = 0f,
     val micEnabled: Boolean = false,
     val unreadCounts: Map<String, Int> = emptyMap(),
     val showEmojiPicker: Boolean = false,
     val avatars: Map<String, String?> = emptyMap(),
+    val displayNames: Map<String, String> = emptyMap(),
+    val displayNameInput: String = "",
     val avatarUploading: Boolean = false,
     val atlasDialogs: List<AtlasDialog> = emptyList(),
+    val atlasBroadcastTitle: String = "",
+    val atlasBroadcastDescription: String = "",
     val atlasBroadcastText: String = "",
     val atlasBroadcastImageUrl: String = "",
+    val showArchive: Boolean = false,
+    val archivedConversations: Set<String> = emptySet(),
 )
-data class AtlasDialog(val id: String, val text: String, val imageUrl: String?, val timestampMs: Long)
+data class AtlasDialog(
+    val id: String,
+    val title: String,
+    val description: String,
+    val text: String,
+    val imageUrl: String?,
+    val timestampMs: Long,
+)
 
 enum class ColorPreset { DEFAULT, VIBRANT, MUTED, PASTEL }
 
 @OptIn(ExperimentalUuidApi::class)
 class ChatViewModel : ViewModel() {
+    companion object {
+        const val EVERYONE_PEER = "__everyone__"
+    }
 
     private val _state = MutableStateFlow(ChatUiState())
     val state: StateFlow<ChatUiState> = _state.asStateFlow()
@@ -153,11 +171,19 @@ class ChatViewModel : ViewModel() {
     }
 
     fun openSettings() {
-        _state.update { it.copy(showSettings = true) }
+        _state.update { it.copy(showSettings = true, showUserDiscovery = false, showAtlasBroadcast = false, showArchive = false) }
     }
 
     fun closeSettings() {
         _state.update { it.copy(showSettings = false) }
+    }
+
+    fun openAtlasBroadcast() {
+        _state.update { it.copy(showAtlasBroadcast = true, showSettings = false, showUserDiscovery = false, showArchive = false) }
+    }
+
+    fun closeAtlasBroadcast() {
+        _state.update { it.copy(showAtlasBroadcast = false) }
     }
 
     fun closeChat() {
@@ -165,7 +191,7 @@ class ChatViewModel : ViewModel() {
     }
 
     fun openUserDiscovery() {
-        _state.update { it.copy(showUserDiscovery = true) }
+        _state.update { it.copy(showUserDiscovery = true, showSettings = false, showAtlasBroadcast = false, showArchive = false) }
         viewModelScope.launch {
             wsClient.fetchPublicUsers()
             state.value.conversations.forEach { ensureAvatarLoaded(it) }
@@ -178,6 +204,14 @@ class ChatViewModel : ViewModel() {
 
     fun closeUserDiscovery() {
         _state.update { it.copy(showUserDiscovery = false) }
+    }
+
+    fun openArchive() {
+        _state.update { it.copy(showArchive = true, showSettings = false, showUserDiscovery = false, showAtlasBroadcast = false) }
+    }
+
+    fun closeArchive() {
+        _state.update { it.copy(showArchive = false) }
     }
 
     fun onPublicStatusChanged(isPublic: Boolean) {
@@ -232,6 +266,25 @@ class ChatViewModel : ViewModel() {
 
     fun deleteConversation(peer: String) {
         viewModelScope.launch { wsClient.deleteConversation(peer) }
+    }
+
+    fun archiveConversation(peer: String) {
+        setConversationArchived(peer, archived = true)
+    }
+
+    fun unarchiveConversation(peer: String) {
+        setConversationArchived(peer, archived = false)
+    }
+
+    private fun setConversationArchived(peer: String, archived: Boolean) {
+        _state.update { s ->
+            val nextArchived = if (archived) s.archivedConversations + peer else s.archivedConversations - peer
+            s.copy(archivedConversations = nextArchived)
+        }
+        viewModelScope.launch(Dispatchers.Default) {
+            runCatching { wsClient.archiveConversation(peer, archived) }
+                .onFailure { e -> _state.update { it.copy(errorMessage = "Ошибка архивации: ${e.message}") } }
+        }
     }
 
     fun fetchUnreadCounts() {
@@ -297,6 +350,93 @@ class ChatViewModel : ViewModel() {
     fun onServerUrlChanged(url: String) {
         _state.update { it.copy(serverUrl = url) }
         persistPreferences()
+    }
+
+    fun onDisplayNameChanged(value: String) {
+        _state.update { it.copy(displayNameInput = value) }
+    }
+
+    fun submitDisplayName() {
+        val candidate = state.value.displayNameInput.trim()
+        if (candidate.isEmpty()) {
+            _state.update { it.copy(errorMessage = "Отображаемое имя не может быть пустым") }
+            return
+        }
+        viewModelScope.launch(Dispatchers.Default) {
+            runCatching {
+                wsClient.updateDisplayName(candidate)
+            }.onFailure { e ->
+                _state.update { it.copy(errorMessage = "Ошибка смены имени: ${e.message}") }
+            }
+        }
+    }
+
+    fun onAtlasBroadcastTextChanged(value: String) {
+        _state.update { it.copy(atlasBroadcastText = value) }
+    }
+
+    fun onAtlasBroadcastTitleChanged(value: String) {
+        _state.update { it.copy(atlasBroadcastTitle = value) }
+    }
+
+    fun onAtlasBroadcastDescriptionChanged(value: String) {
+        _state.update { it.copy(atlasBroadcastDescription = value) }
+    }
+
+    fun onAtlasBroadcastImageUrlChanged(value: String) {
+        _state.update { it.copy(atlasBroadcastImageUrl = value) }
+    }
+
+    fun sendAtlasBroadcastDialog() {
+        val currentState = state.value
+        val title = currentState.atlasBroadcastTitle.trim()
+        val description = currentState.atlasBroadcastDescription.trim()
+        val bodyText = currentState.atlasBroadcastText.trim()
+        if (title.isEmpty() && description.isEmpty() && bodyText.isEmpty()) return
+        val imageUrl = currentState.atlasBroadcastImageUrl.trim().ifBlank { null }
+        val id = Uuid.random().toString()
+        val timestampMs = currentTimeMs()
+        val text = buildString {
+            if (title.isNotBlank()) append("Заголовок: ").append(title).append('\n')
+            if (description.isNotBlank()) append("Описание: ").append(description).append('\n')
+            if (bodyText.isNotBlank()) append(bodyText)
+        }.trim()
+
+        _state.update {
+            it.copy(
+                atlasBroadcastTitle = "",
+                atlasBroadcastDescription = "",
+                atlasBroadcastText = "",
+                atlasBroadcastImageUrl = "",
+            )
+        }
+
+        // Optimistic local insert so Atlas sees the dialog immediately.
+        _state.update {
+            it.copy(
+                atlasDialogs = (it.atlasDialogs + AtlasDialog(
+                    id = id,
+                    title = title,
+                    description = description,
+                    text = text,
+                    imageUrl = imageUrl,
+                    timestampMs = timestampMs,
+                )).sortedByDescending { d -> d.timestampMs },
+            )
+        }
+
+        viewModelScope.launch(Dispatchers.Default) {
+            runCatching {
+                wsClient.sendAtlasDialog(
+                    id = id,
+                    text = text,
+                    imageUrl = imageUrl,
+                    timestampMs = timestampMs,
+                )
+            }.onFailure { e ->
+                _state.update { it.copy(errorMessage = "Ошибка отправки Atlas-диалога: ${e.message}") }
+            }
+        }
     }
 
     private fun persistPreferences() {
@@ -399,6 +539,51 @@ class ChatViewModel : ViewModel() {
 
         _state.update { it.copy(inputText = "") }
 
+        if (peer == EVERYONE_PEER && currentState.username.equals("atlas", ignoreCase = true)) {
+            val id = Uuid.random().toString()
+            val ts = currentTimeMs()
+            _state.update { s ->
+                val everyoneMessages = s.allMessages[EVERYONE_PEER].orEmpty() + ChatMessage(
+                    id = id,
+                    from = "atlas",
+                    to = EVERYONE_PEER,
+                    text = text,
+                    timestampMs = ts,
+                    isOwn = true,
+                )
+                s.copy(
+                    messages = everyoneMessages,
+                    allMessages = s.allMessages + (EVERYONE_PEER to everyoneMessages),
+                    archivedConversations = s.archivedConversations + EVERYONE_PEER,
+                )
+            }
+            viewModelScope.launch(Dispatchers.Default) {
+                runCatching { wsClient.archiveConversation(EVERYONE_PEER, true) }
+            }
+            viewModelScope.launch(Dispatchers.Default) {
+                runCatching {
+                    val recipients = state.value.allUsers
+                        .filter { it.isNotBlank() && !it.equals("atlas", ignoreCase = true) }
+                        .distinct()
+                    for (recipient in recipients) {
+                        val recipientKey = resolvePublicKey(recipient)
+                        val payload = encryption.encrypt(text, recipientKey)
+                        val senderPayload = encryption.encryptForSelf(text)
+                        wsClient.sendEncryptedMessage(
+                            id = "${id}_$recipient",
+                            to = recipient,
+                            payload = payload,
+                            senderPayload = senderPayload,
+                            timestampMs = ts,
+                        )
+                    }
+                }.onFailure { e ->
+                    _state.update { it.copy(errorMessage = "Ошибка отправки в общий чат: ${e.message}") }
+                }
+            }
+            return
+        }
+
         viewModelScope.launch(Dispatchers.Default) {
             runCatching {
                 val recipientKey = resolvePublicKey(peer)
@@ -463,6 +648,9 @@ class ChatViewModel : ViewModel() {
                 sessionStore.save(event.username, state.value.passwordInput)
                 _state.update {
                     val switchedAccount = it.username != event.username
+                    val withEveryone = if (event.username.equals("atlas", ignoreCase = true) &&
+                        EVERYONE_PEER !in it.conversations
+                    ) it.conversations + EVERYONE_PEER else it.conversations
                     it.copy(
                         screen = Screen.CHAT,
                         username = event.username,
@@ -470,10 +658,15 @@ class ChatViewModel : ViewModel() {
                         errorMessage = null,
                         isPublic = event.isPublic,
                         avatars = if (switchedAccount) emptyMap() else it.avatars,
+                        conversations = withEveryone,
+                        displayNameInput = it.displayNames[event.username] ?: event.username,
                     )
                 }
                 viewModelScope.launch { wsClient.fetchAvatar(event.username) }
                 viewModelScope.launch { wsClient.getUnread() }
+                if (event.username.equals("atlas", ignoreCase = true)) {
+                    viewModelScope.launch { wsClient.listAllUsers() }
+                }
                 requestedAvatarUsers.clear()
             }
 
@@ -530,6 +723,8 @@ class ChatViewModel : ViewModel() {
                     val isOwn = event.from == owner
                     val plaintext = encryption.decrypt(event.payload)
                     val peer = if (isOwn) event.to else event.from
+                    val shouldAutoArchive = peer == EVERYONE_PEER ||
+                        (!isOwn && event.from.equals("atlas", ignoreCase = true) && event.id.contains("_"))
                     val message = ChatMessage(
                         id = event.id,
                         from = event.from,
@@ -553,7 +748,13 @@ class ChatViewModel : ViewModel() {
                             conversations = updatedConversations,
                             allMessages = newAllMessages,
                             messages = updatedMessages,
+                            archivedConversations = if (shouldAutoArchive) s.archivedConversations + peer else s.archivedConversations,
                         )
+                    }
+                    if (shouldAutoArchive) {
+                        viewModelScope.launch(Dispatchers.Default) {
+                            runCatching { wsClient.archiveConversation(peer, true) }
+                        }
                     }
                     ensureAvatarLoaded(peer)
                 }.onFailure { e ->
@@ -606,6 +807,7 @@ class ChatViewModel : ViewModel() {
                         conversations = newConversations,
                         allMessages = newAllMessages,
                         unreadCounts = newUnread,
+                        archivedConversations = it.archivedConversations - peer,
                         selectedPeer = if (_state.value.selectedPeer == peer) null else _state.value.selectedPeer,
                     )
                 }
@@ -664,9 +866,108 @@ class ChatViewModel : ViewModel() {
                 }
             }
             is ServerEvent.AtlasDialogReceived -> {
+                val lines = event.text.lines()
+                val title = lines.firstOrNull()
+                    ?.removePrefix("Заголовок: ")
+                    ?.takeIf { lines.firstOrNull()?.startsWith("Заголовок: ") == true }
+                    .orEmpty()
+                val description = lines.getOrNull(1)
+                    ?.removePrefix("Описание: ")
+                    ?.takeIf { lines.getOrNull(1)?.startsWith("Описание: ") == true }
+                    .orEmpty()
                 _state.update {
-                    it.copy(atlasDialogs = (it.atlasDialogs + AtlasDialog(event.id, event.text, event.imageUrl, event.timestampMs))
-                        .sortedByDescending { d -> d.timestampMs })
+                    val withoutSameId = it.atlasDialogs.filterNot { d -> d.id == event.id }
+                    val atlasDialogs = (withoutSameId + AtlasDialog(
+                        id = event.id,
+                        title = title,
+                        description = description,
+                        text = event.text,
+                        imageUrl = event.imageUrl,
+                        timestampMs = event.timestampMs,
+                    )).sortedByDescending { d -> d.timestampMs }
+                    if (!it.username.equals("atlas", ignoreCase = true)) {
+                        it.copy(atlasDialogs = atlasDialogs)
+                    } else {
+                        val msg = ChatMessage(
+                            id = event.id,
+                            from = "atlas",
+                            to = EVERYONE_PEER,
+                            text = event.text,
+                            timestampMs = event.timestampMs,
+                            isOwn = true,
+                        )
+                        val everyoneMessages = (it.allMessages[EVERYONE_PEER].orEmpty().filterNot { m -> m.id == event.id } + msg)
+                            .sortedBy { m -> m.timestampMs }
+                        val conv = if (EVERYONE_PEER !in it.conversations) it.conversations + EVERYONE_PEER else it.conversations
+                        it.copy(
+                            atlasDialogs = atlasDialogs,
+                            allMessages = it.allMessages + (EVERYONE_PEER to everyoneMessages),
+                            messages = if (it.selectedPeer == EVERYONE_PEER) everyoneMessages else it.messages,
+                            conversations = conv,
+                        )
+                    }
+                }
+            }
+
+            is ServerEvent.DisplayNamesReceived -> {
+                _state.update { s ->
+                    s.copy(
+                        displayNames = event.values,
+                        displayNameInput = event.values[s.username] ?: s.displayNameInput,
+                    )
+                }
+            }
+
+            is ServerEvent.DisplayNameUpdated -> {
+                _state.update { s ->
+                    val next = s.displayNames + (event.username to event.displayName)
+                    s.copy(
+                        displayNames = next,
+                        displayNameInput = if (event.username == s.username) event.displayName else s.displayNameInput,
+                    )
+                }
+            }
+
+            is ServerEvent.AllUsersReceived -> {
+                _state.update { it.copy(allUsers = event.users.distinct()) }
+            }
+
+            is ServerEvent.AtlasMessageReceived -> {
+                _state.update { s ->
+                    val isAtlas = s.username.equals(event.from, ignoreCase = true)
+                    val peer = if (isAtlas) EVERYONE_PEER else event.from
+                    val msg = ChatMessage(
+                        id = event.id,
+                        from = event.from,
+                        to = if (isAtlas) EVERYONE_PEER else s.username,
+                        text = event.text,
+                        timestampMs = event.timestampMs,
+                        isOwn = isAtlas,
+                    )
+                    val peerMessages = (s.allMessages[peer].orEmpty().filterNot { it.id == event.id } + msg)
+                        .sortedBy { it.timestampMs }
+                    val conv = if (peer !in s.conversations) s.conversations + peer else s.conversations
+                    s.copy(
+                        allMessages = s.allMessages + (peer to peerMessages),
+                        messages = if (s.selectedPeer == peer) peerMessages else s.messages,
+                        conversations = conv,
+                        archivedConversations = s.archivedConversations + peer,
+                    )
+                }
+            }
+
+            is ServerEvent.ArchivedConversationsReceived -> {
+                _state.update { it.copy(archivedConversations = event.peers) }
+            }
+
+            is ServerEvent.ConversationArchiveUpdated -> {
+                _state.update { s ->
+                    val next = if (event.archived) {
+                        s.archivedConversations + event.peer
+                    } else {
+                        s.archivedConversations - event.peer
+                    }
+                    s.copy(archivedConversations = next)
                 }
             }
 
@@ -701,7 +1002,7 @@ class ChatViewModel : ViewModel() {
     private fun ensureAvatarLoaded(username: String, force: Boolean = false) {
         val user = username.trim()
         val me = state.value.username
-        if (user.isEmpty() || user == me) return
+        if (user.isEmpty() || user == me || user == EVERYONE_PEER) return
         if (!force && (user in state.value.avatars || user in requestedAvatarUsers)) return
         requestedAvatarUsers += user
         viewModelScope.launch {

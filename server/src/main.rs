@@ -56,6 +56,8 @@ enum ClientFrame {
     FetchPublicUsers,
     #[serde(rename = "delete_conversation")]
     DeleteConversation { peer: String },
+    #[serde(rename = "archive_conversation")]
+    ArchiveConversation { peer: String, archived: bool },
     #[serde(rename = "get_unread")]
     GetUnread,
     #[serde(rename = "clear_unread")]
@@ -70,6 +72,12 @@ enum ClientFrame {
     DeleteMessage { id: String },
     #[serde(rename = "atlas_broadcast_dialog")]
     AtlasBroadcastDialog { id: String, text: String, #[serde(rename = "imageUrl")] image_url: Option<String>, #[serde(rename = "timestampMs")] timestamp_ms: i64 },
+    #[serde(rename = "atlas_broadcast_message")]
+    AtlasBroadcastMessage { id: String, text: String, #[serde(rename = "timestampMs")] timestamp_ms: i64 },
+    #[serde(rename = "update_display_name")]
+    UpdateDisplayName { #[serde(rename = "displayName")] display_name: String },
+    #[serde(rename = "list_all_users")]
+    ListAllUsers,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -123,6 +131,10 @@ enum ServerFrame {
     PublicUsers { users: Vec<PublicUserInfo> },
     #[serde(rename = "conversation_deleted")]
     ConversationDeleted { peer: String },
+    #[serde(rename = "archived_conversations")]
+    ArchivedConversations { peers: Vec<String> },
+    #[serde(rename = "conversation_archive_updated")]
+    ConversationArchiveUpdated { peer: String, archived: bool },
     #[serde(rename = "unread_counts")]
     UnreadCounts { counts: HashMap<String, i32> },
     #[serde(rename = "unread_cleared")]
@@ -135,6 +147,14 @@ enum ServerFrame {
     MessageDeleted { id: String },
     #[serde(rename = "atlas_dialog")]
     AtlasDialog { id: String, text: String, #[serde(rename = "imageUrl")] image_url: Option<String>, #[serde(rename = "timestampMs")] timestamp_ms: i64 },
+    #[serde(rename = "atlas_message")]
+    AtlasMessage { id: String, from: String, text: String, #[serde(rename = "timestampMs")] timestamp_ms: i64 },
+    #[serde(rename = "display_names")]
+    DisplayNames { #[serde(rename = "values")] values: HashMap<String, String> },
+    #[serde(rename = "display_name_updated")]
+    DisplayNameUpdated { username: String, #[serde(rename = "displayName")] display_name: String },
+    #[serde(rename = "all_users")]
+    AllUsers { users: Vec<String> },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -303,6 +323,8 @@ async fn handle_message(
             let history = fetch_history(&s.db, &uname)?;
             send_frame(tx, ServerFrame::MessageHistory { messages: history })?;
             send_atlas_dialog_history(&s.db, tx)?;
+            send_display_names(&s.db, tx)?;
+            send_archived_conversations(&s.db, &uname, tx)?;
 
             Ok(())
         }
@@ -349,6 +371,8 @@ async fn handle_message(
             let history = fetch_history(&s.db, &uname)?;
             send_frame(tx, ServerFrame::MessageHistory { messages: history })?;
             send_atlas_dialog_history(&s.db, tx)?;
+            send_display_names(&s.db, tx)?;
+            send_archived_conversations(&s.db, &uname, tx)?;
 
             Ok(())
         }
@@ -419,22 +443,42 @@ async fn handle_message(
             Ok(())
         }
 
+        ClientFrame::ListAllUsers => {
+            let sender = username.as_ref().ok_or("Not authenticated")?;
+            if !sender.eq_ignore_ascii_case("atlas") {
+                return Err("Only 'atlas' can list all users".into());
+            }
+            let mut stmt = s.db.prepare("SELECT username FROM users WHERE LOWER(username) != 'atlas'")?;
+            let mut rows = stmt.query([])?;
+            let mut users = Vec::new();
+            while let Some(row) = rows.next()? {
+                users.push(row.get::<_, String>(0)?);
+            }
+            send_frame(tx, ServerFrame::AllUsers { users })?;
+            Ok(())
+        }
+
             ClientFrame::Message { id, to, payload, sender_payload, timestamp_ms } => {
             let sender = username.as_ref().ok_or("Not authenticated")?;
-            if to == "atlas" {
-                return Err("Cannot message 'atlas' user".into());
-            }
 
             s.db.execute(
                 "INSERT OR IGNORE INTO messages (id, from_user, to_user, encrypted_key, iv, ciphertext, tag, sender_encrypted_key, sender_iv, sender_ciphertext, sender_tag, timestamp_ms)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 params![
-                    id, sender, to,
+                    &id, sender, &to,
                     payload.encrypted_key, payload.iv, payload.ciphertext, payload.tag,
                     sender_payload.encrypted_key, sender_payload.iv, sender_payload.ciphertext, sender_payload.tag,
                     timestamp_ms,
                 ],
             )?;
+
+            if to == "__everyone__" || (sender.eq_ignore_ascii_case("atlas") && id.contains('_')) {
+                let recipient_peer = if to == "__everyone__" { "__everyone__" } else { sender.as_str() };
+                archive_conversation_for_user(&s.db, &to, recipient_peer, true)?;
+                if sender.eq_ignore_ascii_case("atlas") {
+                    archive_conversation_for_user(&s.db, sender, "__everyone__", true)?;
+                }
+            }
 
             if let Some(recipient) = s.online.get(&to) {
                 let msg = ServerFrame::MessageReceived {
@@ -475,6 +519,13 @@ async fn handle_message(
                 params![sender, peer, peer, sender],
             )?;
             send_frame(tx, ServerFrame::ConversationDeleted { peer })?;
+            Ok(())
+        }
+
+        ClientFrame::ArchiveConversation { peer, archived } => {
+            let sender = username.as_ref().ok_or("Not authenticated")?;
+            archive_conversation_for_user(&s.db, sender, &peer, archived)?;
+            send_frame(tx, ServerFrame::ConversationArchiveUpdated { peer, archived })?;
             Ok(())
         }
 
@@ -580,14 +631,74 @@ async fn handle_message(
         }
         ClientFrame::AtlasBroadcastDialog { id, text, image_url, timestamp_ms } => {
             let sender = username.as_ref().ok_or("Not authenticated")?;
-            if sender != "atlas" {
+            if !sender.eq_ignore_ascii_case("atlas") {
                 return Err("Only 'atlas' can broadcast dialogs".into());
             }
             s.db.execute(
                 "INSERT OR IGNORE INTO atlas_dialogs (id, text, image_url, timestamp_ms) VALUES (?, ?, ?, ?)",
                 params![id, text, image_url, timestamp_ms],
             )?;
+            archive_conversation_for_user(&s.db, sender, "__everyone__", true)?;
             let frame = ServerFrame::AtlasDialog { id, text, image_url, timestamp_ms };
+            let archive_frame = ServerFrame::ConversationArchiveUpdated {
+                peer: "__everyone__".to_string(),
+                archived: true,
+            };
+            // Always send back to the sender connection first.
+            let _ = send_frame(tx, frame.clone());
+            let _ = send_frame(tx, archive_frame.clone());
+            let raw = serde_json::to_string(&frame)?;
+            for (uname, user) in s.online.iter() {
+                if uname == sender {
+                    continue;
+                }
+                let _ = user.tx.send(Message::Text(raw.clone().into()));
+            }
+            Ok(())
+        }
+        ClientFrame::AtlasBroadcastMessage { id, text, timestamp_ms } => {
+            let sender = username.as_ref().ok_or("Not authenticated")?;
+            if !sender.eq_ignore_ascii_case("atlas") {
+                return Err("Only 'atlas' can broadcast messages".into());
+            }
+            let frame = ServerFrame::AtlasMessage {
+                id,
+                from: "atlas".to_string(),
+                text,
+                timestamp_ms,
+            };
+            archive_conversation_for_user(&s.db, sender, "__everyone__", true)?;
+            let archive_frame = ServerFrame::ConversationArchiveUpdated {
+                peer: "__everyone__".to_string(),
+                archived: true,
+            };
+            let raw = serde_json::to_string(&frame)?;
+            let raw_archive = serde_json::to_string(&ServerFrame::ConversationArchiveUpdated {
+                peer: "atlas".to_string(),
+                archived: true,
+            })?;
+            for (uname, user) in s.online.iter() {
+                let _ = user.tx.send(Message::Text(raw.clone().into()));
+                if uname == sender {
+                    let _ = user.tx.send(Message::Text(serde_json::to_string(&archive_frame)?.into()));
+                } else {
+                    let _ = user.tx.send(Message::Text(raw_archive.clone().into()));
+                }
+            }
+            Ok(())
+        }
+        ClientFrame::UpdateDisplayName { display_name } => {
+            let sender = username.as_ref().ok_or("Not authenticated")?;
+            validate_display_name(sender, &display_name)?;
+            let normalized = normalize_display_name(&display_name);
+            s.db.execute(
+                "UPDATE users SET display_name = ? WHERE username = ?",
+                params![normalized.clone(), sender],
+            )?;
+            let frame = ServerFrame::DisplayNameUpdated {
+                username: sender.clone(),
+                display_name: normalized,
+            };
             let raw = serde_json::to_string(&frame)?;
             for (_, user) in s.online.iter() {
                 let _ = user.tx.send(Message::Text(raw.clone().into()));
@@ -617,6 +728,80 @@ fn send_atlas_dialog_history(
             timestamp_ms: row.get(3)?,
         })?;
     }
+    Ok(())
+}
+
+fn normalize_display_name(name: &str) -> String {
+    name.trim().to_string()
+}
+
+fn validate_display_name(username: &str, display_name: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let value = normalize_display_name(display_name);
+    if value.is_empty() || value.len() > 40 {
+        return Err("Display name must be 1-40 characters".into());
+    }
+    if value.eq_ignore_ascii_case("atlas") && !username.eq_ignore_ascii_case("atlas") {
+        return Err("Display name 'Atlas' is reserved".into());
+    }
+    let lowered = value.to_lowercase();
+    let blocked = [
+        "disney", "marvel", "pixar", "warner", "dc comics",
+        "nintendo", "pokemon", "star wars", "harry potter",
+    ];
+    if blocked.iter().any(|w| lowered.contains(w)) {
+        return Err("Display name uses a protected/copyrighted brand".into());
+    }
+    Ok(())
+}
+
+fn send_display_names(
+    db: &Connection,
+    tx: &tokio::sync::mpsc::UnboundedSender<Message>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let mut stmt = db.prepare("SELECT username, COALESCE(display_name, username) FROM users")?;
+    let mut rows = stmt.query([])?;
+    let mut values = HashMap::new();
+    while let Some(row) = rows.next()? {
+        let username: String = row.get(0)?;
+        let display_name: String = row.get(1)?;
+        values.insert(username, display_name);
+    }
+    send_frame(tx, ServerFrame::DisplayNames { values })?;
+    Ok(())
+}
+
+fn archive_conversation_for_user(
+    db: &Connection,
+    username: &str,
+    peer: &str,
+    archived: bool,
+) -> Result<(), rusqlite::Error> {
+    if archived {
+        db.execute(
+            "INSERT OR IGNORE INTO archived_conversations (username, peer) VALUES (?, ?)",
+            params![username, peer],
+        )?;
+    } else {
+        db.execute(
+            "DELETE FROM archived_conversations WHERE username = ? AND peer = ?",
+            params![username, peer],
+        )?;
+    }
+    Ok(())
+}
+
+fn send_archived_conversations(
+    db: &Connection,
+    username: &str,
+    tx: &tokio::sync::mpsc::UnboundedSender<Message>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let mut stmt = db.prepare("SELECT peer FROM archived_conversations WHERE username = ?")?;
+    let mut rows = stmt.query(params![username])?;
+    let mut peers = Vec::new();
+    while let Some(row) = rows.next()? {
+        peers.push(row.get::<_, String>(0)?);
+    }
+    send_frame(tx, ServerFrame::ArchivedConversations { peers })?;
     Ok(())
 }
 
@@ -670,6 +855,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     // Migration: Add is_public column if it doesn't exist
     let _ = db.execute("ALTER TABLE users ADD COLUMN avatar_url TEXT DEFAULT NULL", []);
+    let _ = db.execute("ALTER TABLE users ADD COLUMN display_name TEXT DEFAULT NULL", []);
 
     db.execute_batch(
         "CREATE TABLE IF NOT EXISTS users (
@@ -677,7 +863,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             password_hash TEXT NOT NULL,
             public_key TEXT NOT NULL,
             is_public INTEGER DEFAULT 0,
-            avatar_url TEXT DEFAULT NULL
+            avatar_url TEXT DEFAULT NULL,
+            display_name TEXT DEFAULT NULL
         );
         CREATE TABLE IF NOT EXISTS messages (
             id TEXT PRIMARY KEY,
@@ -702,6 +889,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         CREATE INDEX IF NOT EXISTS idx_messages_to_user ON messages(to_user);
         CREATE INDEX IF NOT EXISTS idx_messages_from_user ON messages(from_user);
         CREATE INDEX IF NOT EXISTS idx_unread_to_user ON unread(to_user);
+        CREATE TABLE IF NOT EXISTS archived_conversations (
+            username TEXT NOT NULL,
+            peer TEXT NOT NULL,
+            PRIMARY KEY (username, peer)
+        );
         CREATE TABLE IF NOT EXISTS atlas_dialogs (
             id TEXT PRIMARY KEY,
             text TEXT NOT NULL,
@@ -709,6 +901,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             timestamp_ms INTEGER NOT NULL
         );"
     )?;
+    let _ = db.execute(
+        "DELETE FROM archived_conversations WHERE peer = '__everyone__' AND LOWER(username) != 'atlas'",
+        [],
+    );
 
     let state = Arc::new(Mutex::new(State::new(db)));
 

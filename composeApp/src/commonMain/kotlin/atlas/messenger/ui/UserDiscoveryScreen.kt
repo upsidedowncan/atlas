@@ -6,8 +6,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.rememberTextFieldState
+import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
@@ -20,9 +20,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import atlas.messenger.data.PublicUserInfo
 import atlas.messenger.viewmodel.ChatViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -30,7 +30,15 @@ import atlas.messenger.viewmodel.ChatViewModel
 fun UserDiscoveryScreen(viewModel: ChatViewModel) {
     val state by viewModel.state.collectAsState()
     val colors = MaterialTheme.colorScheme
-    var searchQuery by remember { mutableStateOf("") }
+    val searchBarState = rememberSearchBarState()
+    val textFieldState = rememberTextFieldState()
+    val searchQuery = textFieldState.text.toString()
+
+    LaunchedEffect(textFieldState.text) {
+        val query = textFieldState.text.toString()
+        viewModel.onSearchQueryChanged(query)
+        if (query.isNotBlank()) viewModel.submitSearch()
+    }
 
     BoxWithConstraints {
         val isMobile = maxWidth < 600.dp
@@ -40,34 +48,29 @@ fun UserDiscoveryScreen(viewModel: ChatViewModel) {
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding)
-                    .background(colors.background)
+                    .background(colors.surface)
             ) {
-                // Search Bar
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = {
-                        searchQuery = it
-                        viewModel.onSearchQueryChanged(it)
-                        if (it.isNotBlank()) viewModel.submitSearch()
+                SearchBar(
+                    state = searchBarState,
+                    inputField = {
+                        SearchBarDefaults.InputField(
+                            searchBarState = searchBarState,
+                            textFieldState = textFieldState,
+                            onSearch = {},
+                            placeholder = { Text("Поиск по имени пользователя...") },
+                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                            trailingIcon = {
+                                if (textFieldState.text.isNotEmpty()) {
+                                    IconButton(onClick = { textFieldState.setTextAndPlaceCursorAtEnd("") }) {
+                                        Icon(Icons.Default.Close, contentDescription = "Очистить")
+                                    }
+                                }
+                            },
+                        )
                     },
-                    placeholder = { Text("Поиск по имени пользователя...") },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(16.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                    trailingIcon = {
-                        if (searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { searchQuery = "" }) {
-                                Icon(Icons.Default.Close, contentDescription = "Очистить")
-                            }
-                        }
-                    },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        unfocusedBorderColor = colors.outlineVariant.copy(alpha = 0.5f)
-                    )
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
                 )
 
                 LazyColumn(
@@ -115,7 +118,7 @@ fun UserDiscoveryScreen(viewModel: ChatViewModel) {
                                 ) {
                                     Text(
                                         "Нет доступных пользователей.\nВключите «Публичный профиль» в настройках, чтобы вас видели!",
-                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                        textAlign = TextAlign.Center,
                                         color = colors.onSurfaceVariant
                                     )
                                 }
@@ -158,7 +161,7 @@ fun UserDiscoveryScreen(viewModel: ChatViewModel) {
             Scaffold(
                 topBar = {
                     TopAppBar(
-                        title = { Text("Найти людей", fontWeight = FontWeight.Bold) },
+                        title = { Text("Найти людей", fontWeight = FontWeight.SemiBold) },
                         navigationIcon = {
                             IconButton(
                                 onClick = viewModel::closeUserDiscovery,
@@ -168,26 +171,25 @@ fun UserDiscoveryScreen(viewModel: ChatViewModel) {
                         }
                     )
                 },
+                containerColor = colors.surface,
                 content = content
             )
         } else {
-            Surface(
-                modifier = Modifier.fillMaxSize(),
-                color = colors.background,
-                tonalElevation = 1.dp
-            ) {
-                Column {
-                    CenterAlignedTopAppBar(
-                        title = { Text("Найти людей", fontWeight = FontWeight.Bold) },
+            Scaffold(
+                topBar = {
+                    TopAppBar(
+                        title = { Text("Найти людей", fontWeight = FontWeight.SemiBold) },
                         actions = {
                             IconButton(onClick = viewModel::closeUserDiscovery) {
                                 Icon(Icons.Default.Close, contentDescription = "Закрыть")
                             }
-                        }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(containerColor = colors.surface),
                     )
-                    content(PaddingValues(0.dp))
-                }
-            }
+                },
+                containerColor = colors.surface,
+                content = content,
+            )
         }
     }
 }
@@ -196,10 +198,10 @@ fun UserDiscoveryScreen(viewModel: ChatViewModel) {
 private fun DiscoveryHeader(text: String) {
     Text(
         text = text.uppercase(),
-        style = MaterialTheme.typography.labelLarge,
-        color = MaterialTheme.colorScheme.primary,
-        fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
     )
 }
 
@@ -210,63 +212,58 @@ internal fun UserItem(
     onClick: () -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
-    
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 2.dp)
-            .clip(RoundedCornerShape(16.dp))
+            .background(colors.surface)
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(16.dp)
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Box {
+        BadgedBox(
+            badge = {
+                if (isOnline) {
+                    val onlineColor = if (colors.surface.luminance() > 0.5f) Color(0xFF2E7D32) else Color(0xFF4CAF50)
+                    Badge(
+                        containerColor = onlineColor,
+                        modifier = Modifier.size(12.dp),
+                    )
+                }
+            },
+        ) {
             Box(
                 modifier = Modifier
-                    .size(52.dp)
+                    .size(44.dp)
                     .clip(CircleShape)
                     .background(colors.primaryContainer),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = username.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
-                    style = MaterialTheme.typography.titleLarge,
+                    style = MaterialTheme.typography.titleMedium,
                     color = colors.onPrimaryContainer,
                     fontWeight = FontWeight.Bold
                 )
             }
-            if (isOnline) {
-                val onlineColor = if (colors.surface.luminance() > 0.5f) Color(0xFF2E7D32) else Color(0xFF4CAF50)
-                Box(
-                    modifier = Modifier
-                        .size(14.dp)
-                        .clip(CircleShape)
-                        .background(colors.surface)
-                        .align(Alignment.BottomEnd),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(10.dp)
-                            .clip(CircleShape)
-                            .background(onlineColor)
-                    )
-                }
-            }
         }
 
-        Column {
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(
                 text = username,
-                style = MaterialTheme.typography.bodyLarge,
+                style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
-                color = colors.onSurface
+                color = colors.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = if (isOnline) "В сети" else "Не в сети",
                 style = MaterialTheme.typography.bodySmall,
-                color = if (isOnline) colors.primary else colors.onSurfaceVariant
+                color = colors.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
