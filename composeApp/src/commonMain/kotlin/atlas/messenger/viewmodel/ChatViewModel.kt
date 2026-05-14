@@ -756,9 +756,10 @@ class ChatViewModel : ViewModel() {
             } else {
                 "ws://$cleanUrl"
             }
-            val parsed = java.net.URI(wsUrl)
-            val host = parsed.host ?: "127.0.0.1"
-            val port = if (parsed.port > 0) parsed.port else 8080
+            val withoutScheme = wsUrl.removePrefix("ws://").removePrefix("wss://")
+            val hostPort = withoutScheme.substringBefore("/")
+            val host = hostPort.substringBefore(":").ifBlank { "127.0.0.1" }
+            val port = hostPort.substringAfter(":", "").toIntOrNull() ?: 8080
             Pair(host, port)
         } catch (e: Exception) {
             Pair("127.0.0.1", 8080)
@@ -1240,10 +1241,7 @@ class ChatViewModel : ViewModel() {
     }
 
     private fun computeFingerprint(publicKeyBase64: String): String {
-        val bytes = java.util.Base64.getDecoder().decode(publicKeyBase64)
-        val md = java.security.MessageDigest.getInstance("SHA-256")
-        val digest = md.digest(bytes)
-        return digest.joinToString(":") { "%02X".format(it) }.take(23) + "…"
+        return publicKeyBase64.filterNot { it.isWhitespace() }.take(23) + "…"
     }
 
     private fun decryptHistoryEntry(entry: HistoryEntry, owner: String): ChatMessage {

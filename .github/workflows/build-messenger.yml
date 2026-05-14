@@ -72,6 +72,8 @@ jobs:
             runs_on: ubuntu-latest
           - os_name: Windows
             runs_on: windows-latest
+          - os_name: macOS
+            runs_on: macos-latest
     steps:
       - uses: actions/checkout@v4
 

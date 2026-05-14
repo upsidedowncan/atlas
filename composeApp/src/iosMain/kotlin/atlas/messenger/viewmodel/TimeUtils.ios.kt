@@ -1,5 +1,5 @@
 package atlas.messenger.viewmodel
 
-import platform.Foundation.NSDate
+import platform.CoreFoundation.CFAbsoluteTimeGetCurrent
 
-actual fun currentTimeMs(): Long = (NSDate().timeIntervalSince1970 * 1000).toLong()
+actual fun currentTimeMs(): Long = ((CFAbsoluteTimeGetCurrent() + 978307200.0) * 1000).toLong()

@@ -3,8 +3,9 @@ package atlas.messenger.crypto
 import atlas.messenger.data.EncryptedPayload
 import kotlinx.cinterop.*
 import platform.CoreFoundation.*
-import platform.Security.*
+import platform.CommonCrypto.*
 import platform.Foundation.*
+import platform.Security.*
 
 private class IosEncryptionService : EncryptionService {
 
@@ -12,19 +13,21 @@ private class IosEncryptionService : EncryptionService {
     private val publicKey: SecKeyRef
 
     init {
-        val attributes = CFDictionaryCreateMutable(null, 3, null, null)!!
-        CFDictionaryAddValue(attributes, kSecAttrKeyType, kSecAttrKeyTypeRSA)
-        CFDictionaryAddValue(attributes, kSecAttrKeySizeInBits, CFNumberCreate(null, kCFNumberIntType, cValuesOf(2048)))
-        CFDictionaryAddValue(attributes, kSecAttrCanSign, kCFBooleanFalse)
+        memScoped {
+            val attributes = CFDictionaryCreateMutable(null, 3, null, null)!!
+            CFDictionaryAddValue(attributes, kSecAttrKeyType, kSecAttrKeyTypeRSA)
+            CFDictionaryAddValue(attributes, kSecAttrKeySizeInBits, CFNumberCreate(null, kCFNumberIntType, cValuesOf(2048)))
+            CFDictionaryAddValue(attributes, kSecAttrCanSign, kCFBooleanFalse)
 
-        var error: CFErrorRef? = null
-        val privKey = SecKeyCreateRandomKey(attributes, error.ptr as *) 
-            ?: throw IllegalStateException("Ошибка генерации RSA ключа")
-        CFRelease(attributes)
+            val error = alloc<CFErrorVar>()
+            val privKey = SecKeyCreateRandomKey(attributes, error.ptr)
+                ?: throw IllegalStateException("Ошибка генерации RSA ключа")
+            CFRelease(attributes)
 
-        privateKey = privKey
-        publicKey = SecKeyCopyPublicKey(privKey)
-            ?: throw IllegalStateException("Ошибка извлечения публичного ключа")
+            privateKey = privKey
+            publicKey = SecKeyCopyPublicKey(privKey)
+                ?: throw IllegalStateException("Ошибка извлечения публичного ключа")
+        }
     }
 
     override val publicKeyBase64: String
@@ -111,9 +114,9 @@ private class IosEncryptionService : EncryptionService {
                 iv.usePinned { ivPinned ->
                     output.usePinned { outPinned ->
                         if (encrypt) {
-                            platform.Security.CCCryptorGCM(
-                                kCCEncrypt.toInt().toUInt(),
-                                kCCAlgorithmAES.toUInt(),
+                            CCCryptorGCM(
+                                kCCEncrypt,
+                                kCCAlgorithmAES,
                                 keyPinned.addressOf(0),
                                 key.size.toULong(),
                                 ivPinned.addressOf(0),
@@ -122,16 +125,17 @@ private class IosEncryptionService : EncryptionService {
                                 dataPinned.addressOf(0),
                                 data.size.toULong(),
                                 outPinned.addressOf(0),
-                                outPinned.addressOf(data.size), 16u,
+                                outPinned.addressOf(data.size),
+                                16u,
                             )
                         } else {
                             val ciphertext = data.copyOf(data.size - 16)
                             val tag = data.copyOfRange(data.size - 16, data.size)
                             ciphertext.usePinned { cipherPinned ->
                                 tag.usePinned { tagPinned ->
-                                    platform.Security.CCCryptorGCM(
-                                        kCCDecrypt.toInt().toUInt(),
-                                        kCCAlgorithmAES.toUInt(),
+                                    CCCryptorGCM(
+                                        kCCDecrypt,
+                                        kCCAlgorithmAES,
                                         keyPinned.addressOf(0),
                                         key.size.toULong(),
                                         ivPinned.addressOf(0),
@@ -140,7 +144,8 @@ private class IosEncryptionService : EncryptionService {
                                         cipherPinned.addressOf(0),
                                         ciphertext.size.toULong(),
                                         outPinned.addressOf(0),
-                                        tagPinned.addressOf(0), 16u,
+                                        tagPinned.addressOf(0),
+                                        16u,
                                     )
                                 }
                             }
