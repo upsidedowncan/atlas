@@ -84,13 +84,41 @@ jobs:
           java-version: '21'
           cache: gradle
 
-      - name: Compile Desktop target
+      - name: Build Linux DEB
+        if: matrix.runs_on == 'ubuntu-latest'
         shell: bash
-        run: ./gradlew :composeApp:compileKotlinJvm :composeApp:jvmJar
+        run: ./gradlew :composeApp:packageDeb
 
-      - name: Upload Desktop JVM jar
+      - name: Build Windows MSI
+        if: matrix.runs_on == 'windows-latest'
+        shell: bash
+        run: ./gradlew :composeApp:packageMsi
+
+      - name: Build macOS DMG
+        if: matrix.runs_on == 'macos-latest'
+        shell: bash
+        run: ./gradlew :composeApp:packageDmg
+
+      - name: Upload Linux DEB
+        if: matrix.runs_on == 'ubuntu-latest'
         uses: actions/upload-artifact@v4
         with:
-          name: desktop-jvm-jar-${{ matrix.os_name }}
-          path: composeApp/build/libs/*.jar
+          name: desktop-deb-Linux
+          path: composeApp/build/compose/binaries/main/deb/*.deb
+          if-no-files-found: error
+
+      - name: Upload Windows MSI
+        if: matrix.runs_on == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-msi-Windows
+          path: composeApp/build/compose/binaries/main/msi/*.msi
+          if-no-files-found: error
+
+      - name: Upload macOS DMG
+        if: matrix.runs_on == 'macos-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-dmg-macOS
+          path: composeApp/build/compose/binaries/main/dmg/*.dmg
           if-no-files-found: error

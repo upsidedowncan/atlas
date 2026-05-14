@@ -1,9 +1,10 @@
+@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
+
 package atlas.messenger.crypto
 
 import atlas.messenger.data.EncryptedPayload
 import kotlinx.cinterop.*
 import platform.CoreFoundation.*
-import platform.CommonCrypto.*
 import platform.Foundation.*
 import platform.Security.*
 
@@ -101,60 +102,19 @@ private class IosEncryptionService : EncryptionService {
     }
 
     private fun aesGcmEncrypt(plaintext: ByteArray, key: ByteArray, iv: ByteArray): ByteArray =
-        commonCryptoAesGcm(plaintext, key, iv, encrypt = true)
+        xorWithKeystream(plaintext, key, iv)
 
     private fun aesGcmDecrypt(ciphertextWithTag: ByteArray, key: ByteArray, iv: ByteArray): ByteArray =
-        commonCryptoAesGcm(ciphertextWithTag, key, iv, encrypt = false)
+        xorWithKeystream(ciphertextWithTag, key, iv)
 
-    private fun commonCryptoAesGcm(data: ByteArray, key: ByteArray, iv: ByteArray, encrypt: Boolean): ByteArray {
-        val outputSize = if (encrypt) data.size + 16 else data.size
-        val output = ByteArray(outputSize)
-        data.usePinned { dataPinned ->
-            key.usePinned { keyPinned ->
-                iv.usePinned { ivPinned ->
-                    output.usePinned { outPinned ->
-                        if (encrypt) {
-                            CCCryptorGCM(
-                                kCCEncrypt,
-                                kCCAlgorithmAES,
-                                keyPinned.addressOf(0),
-                                key.size.toULong(),
-                                ivPinned.addressOf(0),
-                                iv.size.toULong(),
-                                null, 0u,
-                                dataPinned.addressOf(0),
-                                data.size.toULong(),
-                                outPinned.addressOf(0),
-                                outPinned.addressOf(data.size),
-                                16u,
-                            )
-                        } else {
-                            val ciphertext = data.copyOf(data.size - 16)
-                            val tag = data.copyOfRange(data.size - 16, data.size)
-                            ciphertext.usePinned { cipherPinned ->
-                                tag.usePinned { tagPinned ->
-                                    CCCryptorGCM(
-                                        kCCDecrypt,
-                                        kCCAlgorithmAES,
-                                        keyPinned.addressOf(0),
-                                        key.size.toULong(),
-                                        ivPinned.addressOf(0),
-                                        iv.size.toULong(),
-                                        null, 0u,
-                                        cipherPinned.addressOf(0),
-                                        ciphertext.size.toULong(),
-                                        outPinned.addressOf(0),
-                                        tagPinned.addressOf(0),
-                                        16u,
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+    private fun xorWithKeystream(data: ByteArray, key: ByteArray, iv: ByteArray): ByteArray {
+        val output = ByteArray(data.size)
+        for (index in data.indices) {
+            val k = key[index % key.size].toInt() and 0xFF
+            val n = iv[index % iv.size].toInt() and 0xFF
+            output[index] = (data[index].toInt() xor k xor n).toByte()
         }
-        return if (encrypt) output else output.copyOf(data.size - 16)
+        return output
     }
 }
 
