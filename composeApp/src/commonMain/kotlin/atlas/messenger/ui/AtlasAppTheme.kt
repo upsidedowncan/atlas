@@ -7,11 +7,11 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontStyle
-import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
-import atlas.messenger.generated.resources.RobotoFlex
+import atlas.messenger.generated.resources.NotoSans_Bold
+import atlas.messenger.generated.resources.NotoSans_Medium
+import atlas.messenger.generated.resources.NotoSans_Regular
 import atlas.messenger.generated.resources.Res
 import atlas.messenger.viewmodel.ColorPreset
 import org.jetbrains.compose.resources.Font
@@ -197,43 +197,29 @@ private fun generateColorScheme(accentHex: Int, contrast: Float, preset: ColorPr
 
 private fun Float.lerp(target: Float, t: Float) = this + (target - this) * t
 
-private fun robotoFlex(
-    weight: Int,
-    opsz: Float = 14f,
-    wdth: Float = 100f,
-    grad: Float = 0f,
-) = FontVariation.Settings(
-    FontVariation.weight(weight),
-    FontVariation.Setting("opsz", opsz),
-    FontVariation.Setting("wdth", wdth),
-    FontVariation.Setting("GRAD", grad),
-)
-
-@Composable
-private fun robotoFlexFamily() = FontFamily(
-    Font(Res.font.RobotoFlex, FontWeight.Normal,   FontStyle.Normal, robotoFlex(400, opsz = 12f)),
-    Font(Res.font.RobotoFlex, FontWeight.Medium,   FontStyle.Normal, robotoFlex(500, opsz = 14f)),
-    Font(Res.font.RobotoFlex, FontWeight.SemiBold, FontStyle.Normal, robotoFlex(600, opsz = 18f)),
-    Font(Res.font.RobotoFlex, FontWeight.Bold,     FontStyle.Normal, robotoFlex(700, opsz = 24f)),
-)
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AtlasAppTheme(textScale: Float = 1.0f, accentColor: Int = 0xFF2196F3.toInt(), contrast: Float = 1.0f, colorPreset: ColorPreset = ColorPreset.VIBRANT, content: @Composable () -> Unit) {
-    val rf = robotoFlexFamily()
+    // a real bundled sans keeps atlas consistent without the weird broken font from before
+    val appFont = FontFamily(
+        Font(Res.font.NotoSans_Regular, FontWeight.Normal),
+        Font(Res.font.NotoSans_Medium, FontWeight.Medium),
+        Font(Res.font.NotoSans_Medium, FontWeight.SemiBold),
+        Font(Res.font.NotoSans_Bold, FontWeight.Bold),
+    )
 
     val typography = remember(textScale) {
         Typography(
-            headlineLarge = TextStyle(fontFamily = rf, fontWeight = FontWeight.Bold,     fontSize = 32.sp * textScale, letterSpacing = 0.sp),
-            headlineMedium= TextStyle(fontFamily = rf, fontWeight = FontWeight.Bold,     fontSize = 28.sp * textScale, letterSpacing = 0.sp),
-            titleLarge    = TextStyle(fontFamily = rf, fontWeight = FontWeight.SemiBold, fontSize = 22.sp * textScale, letterSpacing = 0.sp),
-            titleMedium   = TextStyle(fontFamily = rf, fontWeight = FontWeight.SemiBold, fontSize = 18.sp * textScale, letterSpacing = 0.1.sp),
-            titleSmall    = TextStyle(fontFamily = rf, fontWeight = FontWeight.Medium,   fontSize = 14.sp * textScale, letterSpacing = 0.1.sp),
-            bodyLarge     = TextStyle(fontFamily = rf, fontWeight = FontWeight.Normal,   fontSize = 16.sp * textScale, lineHeight = 24.sp),
-            bodyMedium    = TextStyle(fontFamily = rf, fontWeight = FontWeight.Normal,   fontSize = 14.sp * textScale, lineHeight = 20.sp),
-            bodySmall     = TextStyle(fontFamily = rf, fontWeight = FontWeight.Normal,   fontSize = 12.sp * textScale, lineHeight = 16.sp),
-            labelLarge    = TextStyle(fontFamily = rf, fontWeight = FontWeight.Medium,   fontSize = 14.sp * textScale, letterSpacing = 0.1.sp),
-            labelSmall    = TextStyle(fontFamily = rf, fontWeight = FontWeight.Medium,   fontSize = 11.sp * textScale, letterSpacing = 0.5.sp),
+            headlineLarge = TextStyle(fontFamily = appFont, fontWeight = FontWeight.Bold,     fontSize = 32.sp * textScale, letterSpacing = 0.sp),
+            headlineMedium= TextStyle(fontFamily = appFont, fontWeight = FontWeight.Bold,     fontSize = 28.sp * textScale, letterSpacing = 0.sp),
+            titleLarge    = TextStyle(fontFamily = appFont, fontWeight = FontWeight.SemiBold, fontSize = 22.sp * textScale, letterSpacing = 0.sp),
+            titleMedium   = TextStyle(fontFamily = appFont, fontWeight = FontWeight.SemiBold, fontSize = 18.sp * textScale, letterSpacing = 0.sp),
+            titleSmall    = TextStyle(fontFamily = appFont, fontWeight = FontWeight.Medium,   fontSize = 14.sp * textScale, letterSpacing = 0.sp),
+            bodyLarge     = TextStyle(fontFamily = appFont, fontWeight = FontWeight.Normal,   fontSize = 16.sp * textScale, lineHeight = 24.sp, letterSpacing = 0.sp),
+            bodyMedium    = TextStyle(fontFamily = appFont, fontWeight = FontWeight.Normal,   fontSize = 14.sp * textScale, lineHeight = 20.sp, letterSpacing = 0.sp),
+            bodySmall     = TextStyle(fontFamily = appFont, fontWeight = FontWeight.Normal,   fontSize = 12.sp * textScale, lineHeight = 16.sp, letterSpacing = 0.sp),
+            labelLarge    = TextStyle(fontFamily = appFont, fontWeight = FontWeight.Medium,   fontSize = 14.sp * textScale, letterSpacing = 0.sp),
+            labelSmall    = TextStyle(fontFamily = appFont, fontWeight = FontWeight.Medium,   fontSize = 11.sp * textScale, letterSpacing = 0.sp),
         )
     }
 

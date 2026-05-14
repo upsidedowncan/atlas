@@ -37,7 +37,7 @@ fun CallScreen(viewModel: ChatViewModel) {
     )
 
     Box(modifier = Modifier.fillMaxSize().background(colors.surfaceContainerLowest)) {
-        // --- Premium "Physical String" Implementation ---
+        // the call gets a living waveform instead of a cold empty screen
         val infiniteTransition = rememberInfiniteTransition(label = "call-string")
         val time by infiniteTransition.animateFloat(
             initialValue = 0f,
@@ -63,23 +63,22 @@ fun CallScreen(viewModel: ChatViewModel) {
                 val t = i.toFloat() / points
                 val x = t * width
                 
-                // Advanced wave synthesis: 
-                // Fundamental + Harmonics + Non-linear perturbation
+                // mix in harmonics so voices feel alive, not robotic
                 var dy = 0f
                 val phase = time * 2f * kotlin.math.PI.toFloat()
                 
-                // Base vibration
+                // the calm base motion
                 dy += kotlin.math.sin(t * kotlin.math.PI.toFloat() + phase) * 0.5f
-                // Speech-driven harmonics
+                // extra motion pulled from the current voice level
                 dy += kotlin.math.sin(t * 3f * kotlin.math.PI.toFloat() - phase * 1.5f) * intensity * 0.4f
                 dy += kotlin.math.sin(t * 7.2f * kotlin.math.PI.toFloat() + phase * 2.8f) * intensity * 0.2f
                 
-                // Add some "tension" and "noise" when loud
+                // louder moments get a little nervous energy
                 if (intensity > 0.5f) {
                     dy += (kotlin.math.sin(t * 20f + phase * 10f)) * 0.05f * intensity
                 }
 
-                // Bell envelope (fixed ends)
+                // pin the ends so the wave feels held in place
                 val envelope = kotlin.math.sin(t * kotlin.math.PI.toFloat())
                 
                 val amplitude = 12.dp.toPx() + (intensity * 220.dp.toPx())
@@ -87,8 +86,7 @@ fun CallScreen(viewModel: ChatViewModel) {
                 path.lineTo(x, y)
             }
             
-            // Render with layers for "Glow"
-            // Layer 1: Wide blur glow
+            // the soft glow gives the line some warmth
             drawPath(
                 path = path,
                 color = colors.primary.copy(alpha = 0.15f * (0.3f + intensity)),
@@ -97,7 +95,7 @@ fun CallScreen(viewModel: ChatViewModel) {
                     cap = androidx.compose.ui.graphics.StrokeCap.Round
                 )
             )
-            // Layer 2: Medium glow
+            // the middle glow keeps the bright edge from feeling harsh
             drawPath(
                 path = path,
                 color = colors.primary.copy(alpha = 0.3f),
@@ -106,7 +104,7 @@ fun CallScreen(viewModel: ChatViewModel) {
                     cap = androidx.compose.ui.graphics.StrokeCap.Round
                 )
             )
-            // Layer 3: Core string
+            // the sharp core is what the eye actually follows
             drawPath(
                 path = path,
                 color = colors.primary,
@@ -122,7 +120,7 @@ fun CallScreen(viewModel: ChatViewModel) {
             modifier = Modifier.fillMaxSize().padding(32.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // Caller ID Card
+            // keep the caller centered and calm
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.padding(top = 96.dp)
@@ -164,8 +162,7 @@ fun CallScreen(viewModel: ChatViewModel) {
             }
         }
 
-        // --- Official Material 3 Expressive Floating Toolbar ---
-        // Positioned at bottom-center exactly per the M3 Expressive spec.
+        // the controls stay close to the thumb, where calls need them
         val vibrantColors = FloatingToolbarDefaults.vibrantFloatingToolbarColors()
         HorizontalFloatingToolbar(
             expanded = true,

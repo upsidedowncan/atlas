@@ -51,7 +51,7 @@ private class JvmEncryptionService : EncryptionService {
                     .generatePublic(X509EncodedKeySpec(pubBytes))
                 return java.security.KeyPair(pubKey, privKey)
             } catch (e: Exception) {
-                // Ignore errors, regenerate
+                // bad saved keys are not worth fighting; make fresh ones
             }
         }
 

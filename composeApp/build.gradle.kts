@@ -61,11 +61,11 @@ kotlin {
             implementation(libs.kotlinx.coroutinesCore)
 
             implementation(compose.materialIconsExtended)
-            implementation(libs.androidx.graphics.shapes)
             implementation(libs.coil.compose)
             implementation(libs.coil.network.ktor)
             implementation(libs.kmp.emoji.picker)
             implementation(libs.image.picker.kmp)
+            api("io.github.kdroidfilter:composewebview:1.0.0-beta-01")
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
@@ -131,6 +131,14 @@ compose.resources {
 compose.desktop {
     application {
         mainClass = "atlas.messenger.MainKt"
+        jvmArgs("--enable-native-access=ALL-UNNAMED")
+        jvmArgs("--add-opens", "java.desktop/sun.awt=ALL-UNNAMED")
+        jvmArgs("--add-opens", "java.desktop/java.awt.peer=ALL-UNNAMED")
+
+        if (System.getProperty("os.name").contains("Mac")) {
+            jvmArgs("--add-opens", "java.desktop/sun.lwawt=ALL-UNNAMED")
+            jvmArgs("--add-opens", "java.desktop/sun.lwawt.macosx=ALL-UNNAMED")
+        }
 
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
@@ -140,7 +148,7 @@ compose.desktop {
     }
 }
 
-// Enable JBR auto-download for Hot Reload
+// hot reload is happier when it gets the jetbrains runtime it expects
 tasks.withType<org.jetbrains.compose.reload.gradle.ComposeHotRun>().configureEach {
     javaLauncher.set(javaToolchains.launcherFor {
         languageVersion.set(JavaLanguageVersion.of(21))

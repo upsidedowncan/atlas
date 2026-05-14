@@ -1,6 +1,5 @@
 plugins {
-    // this is necessary to avoid the plugins to be loaded multiple times
-    // in each subproject's classloader
+    // keep these plugins in one shared spot so gradle does not trip over itself
     alias(libs.plugins.androidApplication) apply false
     alias(libs.plugins.androidLibrary) apply false
     alias(libs.plugins.composeHotReload) apply false

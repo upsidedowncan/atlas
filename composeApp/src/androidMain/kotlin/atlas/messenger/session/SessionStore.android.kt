@@ -1,11 +1,13 @@
 package atlas.messenger.session
 
-import android.app.Application
 import android.content.Context
 import android.content.SharedPreferences
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
 private class AndroidSessionStore(private val context: Context) : SessionStore {
     private val prefs: SharedPreferences = context.getSharedPreferences("atlas_session", Context.MODE_PRIVATE)
+    private val json = Json { ignoreUnknownKeys = true }
 
     override fun save(username: String, password: String) {
         prefs.edit()
@@ -43,6 +45,15 @@ private class AndroidSessionStore(private val context: Context) : SessionStore {
             contrast = prefs.getFloat("contrast", 1.0f),
             serverUrl = prefs.getString("serverUrl", "ws://127.0.0.1:8080") ?: "ws://127.0.0.1:8080",
         )
+    }
+
+    override fun saveMiteChats(chats: List<PersistedMiteChat>) {
+        prefs.edit().putString("miteChats", json.encodeToString(chats)).apply()
+    }
+
+    override fun loadMiteChats(): List<PersistedMiteChat> {
+        val raw = prefs.getString("miteChats", null) ?: return emptyList()
+        return runCatching { json.decodeFromString<List<PersistedMiteChat>>(raw) }.getOrDefault(emptyList())
     }
 }
 

@@ -28,6 +28,7 @@ dependencyResolutionManagement {
         }
         mavenCentral()
         maven("https://repo1.maven.org/maven2/")
+        maven("https://jogamp.org/deployment/maven")
         maven("https://packages.jetbrains.team/maven/p/firework/dev")
     }
 }

@@ -8,8 +8,10 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.HoverInteraction
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -37,6 +39,7 @@ import androidx.compose.material3.*
 import androidx.compose.material3.carousel.HorizontalMultiBrowseCarousel
 import androidx.compose.material3.carousel.rememberCarouselState
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,9 +49,11 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -58,8 +63,9 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.geometry.Offset
 import coil3.compose.AsyncImage
 import atlas.messenger.data.ChatMessage
-import atlas.messenger.ui.shapes.AnimatedEmptyState
 import atlas.messenger.viewmodel.ChatViewModel
+import atlas.messenger.viewmodel.MiteChat
+import atlas.messenger.viewmodel.MiteMessage
 import io.github.ismoy.imagepickerkmp.domain.extensions.loadBase64
 import io.github.ismoy.imagepickerkmp.domain.models.MimeType
 import io.github.ismoy.imagepickerkmp.presentation.ui.components.GalleryPickerLauncher
@@ -67,6 +73,8 @@ import me.digitalby.emojipicker.EmojiPicker
 import me.digitalby.emojipicker.rememberEmojiPickerState
 import atlas.messenger.viewmodel.ColorPreset
 import androidx.compose.ui.text.font.FontStyle
+import io.github.kdroidfilter.webview.web.WebView
+import io.github.kdroidfilter.webview.web.rememberWebViewStateWithHTMLData
 
 @Composable
 private fun AvatarBox(
@@ -99,9 +107,83 @@ private fun AvatarBox(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+internal fun ChatTile(
+    username: String,
+    displayName: String,
+    avatarUrl: String?,
+    supportingText: String,
+    isOnline: Boolean,
+    unreadCount: Int = 0,
+    modifier: Modifier = Modifier,
+    selected: Boolean = false,
+    onLongClick: (() -> Unit)? = null,
+    onClick: () -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    val onlineColor = if (colors.surface.luminance() > 0.5f) Color(0xFF2E7D32) else Color(0xFF4CAF50)
+    val backgroundColor = if (selected) colors.secondaryContainer else colors.surface
+    val titleColor = if (selected) colors.onSecondaryContainer else colors.onSurface
+    val supportingColor = if (selected) colors.onSecondaryContainer.copy(alpha = 0.78f) else colors.onSurfaceVariant
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(backgroundColor)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick,
+            )
+            .padding(horizontal = 16.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        BadgedBox(
+            badge = {
+                if (isOnline) {
+                    Badge(
+                        containerColor = onlineColor,
+                        modifier = Modifier.size(12.dp),
+                    )
+                }
+            },
+        ) {
+            BadgedBox(
+                badge = { CircularUnreadBadge(unreadCount) },
+            ) {
+                AvatarBox(username, avatarUrl, 44)
+            }
+        }
+
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(
+                text = displayName,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = titleColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = supportingText,
+                style = MaterialTheme.typography.bodySmall,
+                color = supportingColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
 private val MOBILE_BREAKPOINT = 600.dp
 
-private fun displayNameFor(state: atlas.messenger.viewmodel.ChatUiState, username: String): String {
+@Composable
+internal fun atlasAppBarColor(): Color {
+    return MaterialTheme.colorScheme.surfaceContainerLow
+}
+
+internal fun displayNameFor(state: atlas.messenger.viewmodel.ChatUiState, username: String): String {
     return when (username) {
         ChatViewModel.EVERYONE_PEER -> "Все"
         else -> state.displayNames[username] ?: username
@@ -142,6 +224,15 @@ fun MainScreen(viewModel: ChatViewModel) {
                 UserDiscoveryScreen(viewModel)
             }
         }
+
+        state.activeAtlasSpaceHtml?.let { html ->
+            AtlasSpaceViewer(
+                html = html,
+                title = state.activeAtlasSpaceTitle ?: "Atlas Space",
+                onClose = viewModel::closeAtlasSpace,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
     }
 }
 
@@ -162,18 +253,39 @@ private fun MobileMainScreen(viewModel: ChatViewModel) {
         }
     }
 
-    if (showChat) {
-        PlatformBackHandler(enabled = true) {
-            viewModel.closeChat()
+    val hasMobileBackTarget = state.showUserDiscovery ||
+            showChat ||
+            state.selectedMiteChatId != null ||
+            state.showMiteChats ||
+            state.showArchive
+
+    PlatformBackHandler(enabled = hasMobileBackTarget) {
+        // keep one steady android back hook so gestures leave app screens, not the app
+        when {
+            state.showUserDiscovery -> viewModel.closeUserDiscovery()
+            showChat -> viewModel.closeChat()
+            state.selectedMiteChatId != null -> viewModel.closeMiteChat()
+            state.showMiteChats -> viewModel.closeMiteChats()
+            state.showArchive -> viewModel.closeArchive()
         }
+    }
+
+    if (showChat) {
         ChatPane(viewModel = viewModel, showBackButton = true, onBack = viewModel::closeChat)
         return
     }
 
+    if (state.selectedMiteChatId != null) {
+        MiteChatPane(viewModel = viewModel, showBackButton = true, onBack = viewModel::closeMiteChat)
+        return
+    }
+
+    if (state.showMiteChats) {
+        MiteChatsScreen(viewModel = viewModel, showBackButton = true, onBack = viewModel::closeMiteChats)
+        return
+    }
+
     if (state.showArchive) {
-        PlatformBackHandler(enabled = true) {
-            viewModel.closeArchive()
-        }
         ArchiveScreen(viewModel = viewModel, showBackButton = true, onBack = viewModel::closeArchive)
         return
     }
@@ -238,6 +350,8 @@ private fun MobileConversationListTab(viewModel: ChatViewModel) {
     var showSearchDialog by remember { mutableStateOf(false) }
 
     val searchText = rememberTextFieldState()
+    val fabContainerColor = MaterialTheme.colorScheme.primary
+    val fabContentColor = MaterialTheme.colorScheme.onPrimary
 
     LaunchedEffect(searchText.text) {
         val query = searchText.text.toString()
@@ -266,6 +380,9 @@ private fun MobileConversationListTab(viewModel: ChatViewModel) {
         topBar = {
             TopAppBar(
                 title = { Text("Atlas") },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = atlasAppBarColor(),
+                ),
             )
         },
         floatingActionButton = {
@@ -274,26 +391,31 @@ private fun MobileConversationListTab(viewModel: ChatViewModel) {
                 button = {
                     ToggleFloatingActionButton(
                         checked = fabExpanded,
-                        onCheckedChange = { fabExpanded = it },
-                        modifier = Modifier,
+                        onCheckedChange = { expanded -> fabExpanded = expanded },
+                        containerColor = { fabContainerColor },
                         containerSize = ToggleFloatingActionButtonDefaults.containerSize(
-                            initialSize = 96.dp,
-                            finalSize = 96.dp,
+                            initialSize = 56.dp,
+                            finalSize = 56.dp,
                         ),
-	                    ) {
-	                        Icon(
-	                            imageVector = if (checkedProgress > 0.5f) Icons.Default.Close else Icons.Default.Add,
-	                            contentDescription = "Новый чат",
-	                            modifier = Modifier.size(48.dp),
-	                            tint = if (fabExpanded) {
-	                                MaterialTheme.colorScheme.onPrimaryContainer
-	                            } else {
-	                                MaterialTheme.colorScheme.onPrimary
-	                            },
-	                        )
-	                    }
+                    ) {
+                        Icon(
+                            imageVector = if (checkedProgress > 0.5f) Icons.Default.Close else Icons.Default.Add,
+                            contentDescription = "Новый чат",
+                            modifier = Modifier.size(24.dp),
+                            tint = fabContentColor,
+                        )
+                    }
                 },
             ) {
+                FloatingActionButtonMenuItem(
+                    onClick = {
+                        fabExpanded = false
+                        viewModel.openMiteChats()
+                    },
+                    text = { Text("Чат с Mite") },
+                    icon = { Icon(Icons.Default.Android, contentDescription = null) },
+                    modifier = Modifier,
+                )
                 FloatingActionButtonMenuItem(
                     onClick = {
                         fabExpanded = false
@@ -365,26 +487,14 @@ private fun MobileSearchDialog(
                 if (state.searchResults.isNotEmpty()) {
                     LazyColumn(modifier = Modifier.heightIn(max = 320.dp)) {
                         items(state.searchResults) { username ->
-                                    ListItem(
-                                        headlineContent = { Text(displayNameFor(state, username)) },
-                                        supportingContent = {
-                                            if (username in state.onlineUsers) {
-                                                Text("В сети", color = MaterialTheme.colorScheme.primary)
-                                            }
-                                        },
-                                        leadingContent = {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(40.dp)
-                                                    .clip(CircleShape)
-                                                    .background(MaterialTheme.colorScheme.secondaryContainer),
-                                                contentAlignment = Alignment.Center,
-                                            ) {
-                                                AvatarBox(username, state.avatars[username], 40)
-                                            }
-                                        },
-                                        modifier = Modifier.clickable { onUserSelected(username) },
-                                    )
+                            ChatTile(
+                                username = username,
+                                displayName = displayNameFor(state, username),
+                                avatarUrl = state.avatars[username],
+                                supportingText = if (username in state.onlineUsers) "В сети" else "Не в сети",
+                                isOnline = username in state.onlineUsers,
+                                onClick = { onUserSelected(username) },
+                            )
                         }
                     }
                 } else if (searchText.text.isNotBlank()) {
@@ -431,10 +541,10 @@ private fun DesktopMainScreen(viewModel: ChatViewModel) {
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 1.dp,
         ) {
-            if (state.showUserDiscovery) {
-                UserDiscoveryScreen(viewModel)
-            } else {
-                ConversationList(
+            when {
+                state.showUserDiscovery -> UserDiscoveryScreen(viewModel)
+                state.showMiteChats -> MiteChatsScreen(viewModel, embeddedInSidebar = true, onBack = viewModel::closeMiteChats)
+                else -> ConversationList(
                     viewModel = viewModel,
                     archived = state.showArchive,
                     showSidebarHeader = true,
@@ -451,6 +561,7 @@ private fun DesktopMainScreen(viewModel: ChatViewModel) {
         Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
             when {
                 state.showSettings -> SettingsPane(viewModel)
+                state.selectedMiteChatId != null -> MiteChatPane(viewModel)
                 state.selectedPeer != null -> ChatPane(viewModel)
                 else -> EmptyPane()
             }
@@ -462,26 +573,35 @@ private fun DesktopMainScreen(viewModel: ChatViewModel) {
 private fun VerticalSplitHandle(onDrag: (Float) -> Unit) {
     val interactionSource = remember { MutableInteractionSource() }
     var isHovered by remember { mutableStateOf(false) }
+    var isDragging by remember { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
             .fillMaxHeight()
             .width(4.dp)
+            .horizontalResizeCursor()
             .hoverable(interactionSource)
             .pointerInput(Unit) {
-                detectHorizontalDragGestures { _, dragAmount ->
-                    onDrag(dragAmount)
-                }
+                detectHorizontalDragGestures(
+                    onDragStart = { isDragging = true },
+                    onDragEnd = { isDragging = false },
+                    onDragCancel = { isDragging = false },
+                    onHorizontalDrag = { _, dragAmount -> onDrag(dragAmount) },
+                )
             }
             .background(
-                if (isHovered) MaterialTheme.colorScheme.primary
+                if (isHovered || isDragging) MaterialTheme.colorScheme.primary
                 else MaterialTheme.colorScheme.outlineVariant
             ),
     )
 
     LaunchedEffect(interactionSource) {
         interactionSource.interactions.collect { interaction ->
-            isHovered = interaction != null
+            // hover emits both enter and exit events, so track the exact state instead of any event
+            when (interaction) {
+                is HoverInteraction.Enter -> isHovered = true
+                is HoverInteraction.Exit -> isHovered = false
+            }
         }
     }
 }
@@ -505,16 +625,18 @@ private fun NavRail(viewModel: ChatViewModel) {
 
     NavigationRail(
         modifier = Modifier.fillMaxHeight(),
-        containerColor = colors.surface,
+        // give the rail its own shade so it does not melt into the chat list
+        containerColor = colors.surfaceContainerLow,
         header = {},
     ) {
         NavigationRailItem(
-            selected = !state.showSearch && !state.showSettings && !state.showUserDiscovery && !state.showArchive,
+            selected = !state.showSearch && !state.showSettings && !state.showUserDiscovery && !state.showArchive && !state.showMiteChats && state.selectedMiteChatId == null,
             onClick = {
                 viewModel.closeSearch()
                 viewModel.closeSettings()
                 viewModel.closeUserDiscovery()
                 viewModel.closeArchive()
+                viewModel.closeMiteChats()
             },
             icon = {
                 BadgedBox(
@@ -582,6 +704,7 @@ private fun ConversationList(
         }
 
         if (!archived) {
+            MiteEntryTile(onClick = viewModel::openMiteChats)
             ArchiveEntryTile(
                 count = state.archivedConversations.size,
                 unreadCount = archivedUnread,
@@ -662,6 +785,8 @@ private fun ConversationList(
 
                         state.publicUsers.take(5).forEach { user ->
                             UserItem(
+                                displayName = displayNameFor(state, user.username),
+                                avatarUrl = state.avatars[user.username],
                                 username = user.username,
                                 isOnline = user.isOnline,
                                 onClick = { viewModel.onUserSelected(user.username) }
@@ -672,7 +797,10 @@ private fun ConversationList(
             }
         } else {
             LazyColumn(modifier = Modifier.weight(1f)) {
-                items(visibleConversations) { peer ->
+                items(
+                    items = visibleConversations,
+                    key = { peer -> peer },
+                ) { peer ->
                     val unread = state.unreadCounts[peer] ?: 0
                     val avatarUrl = state.avatars[peer]
                     ConversationItem(
@@ -713,9 +841,213 @@ private fun ArchiveScreen(
                     }
                 }
             },
-            colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = atlasAppBarColor()),
         )
         ConversationList(viewModel = viewModel, archived = true)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MiteChatsScreen(
+    viewModel: ChatViewModel,
+    showBackButton: Boolean = false,
+    embeddedInSidebar: Boolean = false,
+    onBack: (() -> Unit)? = null,
+) {
+    val state by viewModel.state.collectAsState()
+    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            TopAppBar(
+                title = { Text("Чат с Mite", fontWeight = FontWeight.SemiBold) },
+                navigationIcon = {
+                    if ((showBackButton || embeddedInSidebar) && onBack != null) {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
+                        }
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = atlasAppBarColor()),
+            )
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 96.dp),
+            ) {
+                if (state.miteChats.isEmpty()) {
+                    item {
+                        Box(modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) {
+                            Text("Нет чатов с Mite", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                } else {
+                    items(state.miteChats, key = { it.id }) { chat ->
+                        MiteChatListTile(
+                            chat = chat,
+                            onClick = { viewModel.openMiteChat(chat.id) },
+                            onDelete = { viewModel.deleteMiteChat(chat.id) },
+                        )
+                    }
+                }
+            }
+        }
+        FloatingActionButton(
+            onClick = viewModel::startMiteChat,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .navigationBarsPadding()
+                .padding(24.dp),
+            containerColor = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+        ) {
+            Icon(Icons.Default.Add, contentDescription = "Новый чат")
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun MiteChatListTile(
+    chat: MiteChat,
+    onClick: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val preview = chat.messages.lastOrNull { it.text.isNotBlank() }?.text ?: "Нет сообщений"
+    var menuExpanded by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("Удалить чат с Mite?") },
+            text = { Text("Чат «${chat.title}» будет удалён из локальной истории.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteDialog = false
+                        onDelete()
+                    },
+                ) {
+                    Text("Удалить", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("Отмена")
+                }
+            },
+        )
+    }
+
+    Box(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = { menuExpanded = true },
+                    onLongClickLabel = "Удалить чат",
+                )
+                .pointerInput(Unit) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            if (event.type == PointerEventType.Press && event.buttons.isSecondaryPressed) {
+                                menuExpanded = true
+                                event.changes.forEach { it.consume() }
+                            }
+                        }
+                    }
+                }
+                .padding(horizontal = 16.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Default.Android, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(24.dp))
+            }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        chat.title,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(formatTime(chat.updatedAtMs), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Text(preview, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+            }
+        }
+        DropdownMenu(
+            expanded = menuExpanded,
+            onDismissRequest = { menuExpanded = false },
+            modifier = Modifier.align(Alignment.TopEnd),
+        ) {
+            DropdownMenuItem(
+                text = { Text("Удалить чат") },
+                leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
+                onClick = {
+                    menuExpanded = false
+                    showDeleteDialog = true
+                },
+                colors = MenuDefaults.itemColors(
+                    textColor = MaterialTheme.colorScheme.error,
+                    leadingIconColor = MaterialTheme.colorScheme.error,
+                ),
+            )
+        }
+    }
+}
+
+@Composable
+private fun MiteEntryTile(
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.primaryContainer),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Default.Android,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.size(24.dp),
+            )
+        }
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Text(
+                "Чат с Mite",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+            )
+            Text(
+                "ИИ-помощник",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+        }
     }
 }
 
@@ -735,14 +1067,17 @@ private fun ArchiveEntryTile(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Box(
-            modifier = Modifier.size(36.dp),
+            modifier = Modifier
+                .size(44.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.secondaryContainer),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
                 Icons.Default.Archive,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp),
+                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.size(24.dp),
             )
         }
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
@@ -783,7 +1118,16 @@ private fun ConversationItem(
 ) {
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showContextMenu by remember { mutableStateOf(false) }
-    val dismissState = rememberSwipeToDismissBoxState()
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            if (value != SwipeToDismissBoxValue.Settled) {
+                onArchiveToggle()
+                false
+            } else {
+                true
+            }
+        },
+    )
 
     if (showDeleteDialog) {
         AlertDialog(
@@ -833,61 +1177,22 @@ private fun ConversationItem(
             }
         },
         modifier = Modifier.fillMaxWidth(),
-        onDismiss = { onArchiveToggle() },
     ) {
         Box {
-            Row(
+            ChatTile(
+                username = peer,
+                displayName = displayName,
+                avatarUrl = avatarUrl,
+                supportingText = lastMessage ?: if (isOnline) "В сети" else "Нет сообщений",
+                isOnline = isOnline,
+                unreadCount = unreadCount,
+                selected = isSelected,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 1.dp)
-                    .background(MaterialTheme.colorScheme.surface)
-                    .combinedClickable(
-                        onClick = onClick,
-                        onLongClick = { showContextMenu = true }
-                    )
-                    .padding(horizontal = 16.dp, vertical = 7.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                BadgedBox(
-                    badge = {
-                        if (isOnline) {
-                            val onlineColor = if (MaterialTheme.colorScheme.surface.luminance() > 0.5f) {
-                                Color(0xFF2E7D32)
-                            } else {
-                                Color(0xFF4CAF50)
-                            }
-                            Badge(
-                                containerColor = onlineColor,
-                                modifier = Modifier.size(12.dp),
-                            )
-                        }
-                    },
-                ) {
-                    BadgedBox(
-                        badge = { CircularUnreadBadge(unreadCount) },
-                    ) {
-                        AvatarBox(peer, avatarUrl, 44)
-                    }
-                }
-
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text(
-                        text = displayName,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = lastMessage ?: if (isOnline) "В сети" else "Нет сообщений",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
+                    .padding(vertical = 1.dp),
+                onLongClick = { showContextMenu = true },
+                onClick = onClick,
+            )
 
             DropdownMenu(
                 expanded = showContextMenu,
@@ -915,6 +1220,7 @@ private fun ConversationItem(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ChatPane(
     viewModel: ChatViewModel,
@@ -939,41 +1245,36 @@ private fun ChatPane(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
         Column(modifier = Modifier.fillMaxSize()) {
-            Surface(
-                tonalElevation = 2.dp,
-                modifier = Modifier.statusBarsPadding(),
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
+            TopAppBar(
+                title = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        AvatarBox(peerDisplayName, state.avatars[peer], 40)
+                        Column {
+                            Text(peerDisplayName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            Text(
+                                if (isEveryone) "Общий чат" else if (peer in state.onlineUsers) "В сети" else "Не в сети",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (!isEveryone && peer in state.onlineUsers) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                },
+                navigationIcon = {
                     if (showBackButton && onBack != null) {
-                        IconButton(
-                            onClick = onBack,
-                            modifier = Modifier
-                        ) {
+                        IconButton(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
                         }
                     }
-                    AvatarBox(peerDisplayName, state.avatars[peer], 40)
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(peerDisplayName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text(
-                            if (isEveryone) "Общий чат" else if (peer in state.onlineUsers) "В сети" else "Не в сети",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (!isEveryone && peer in state.onlineUsers) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-
+                },
+                actions = {
                     if (!isEveryone) {
-                        IconButton(
-                            onClick = { viewModel.startCall(peer) },
-                            modifier = Modifier
-                        ) {
+                        IconButton(onClick = { viewModel.startCall(peer) }) {
                             Icon(
                                 Icons.Default.Call,
                                 contentDescription = "Звонок",
@@ -981,82 +1282,100 @@ private fun ChatPane(
                             )
                         }
                     }
-                }
-            }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = atlasAppBarColor()),
+            )
 
-            state.errorMessage?.let { error ->
-                Surface(color = MaterialTheme.colorScheme.errorContainer) {
-                    Text(
-                        text = error,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-                    )
-                }
-            }
-
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
-                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 72.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
             ) {
-                item {
-                    Box(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            Icon(
-                                Icons.Default.Lock,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(10.dp)
-                            )
-                            Text(
-                                text = "Защищено сквозным шифрованием",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
+                // the rounded chat canvas gives the appbar that nice little google-chat lift
+                Surface(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .fillMaxWidth(),
+                    shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp),
+                    color = MaterialTheme.colorScheme.background,
+                ) {
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        state.errorMessage?.let { error ->
+                            Surface(color = MaterialTheme.colorScheme.errorContainer) {
+                                Text(
+                                    text = error,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                                )
+                            }
                         }
-                    }
-                }
-                val groups = groupMessages(state.messages)
-                groups.forEach { group ->
-                    items(group.messages.size) { idx ->
-                        val msg = group.messages[idx]
-                        val isFirst = idx == 0
-                        val isLast  = idx == group.messages.size - 1
-                        MessageBubble(
-                            message  = msg,
-                            isFirst  = isFirst,
-                            isLast   = isLast,
-                            isSingle = group.messages.size == 1,
-                            onEdit   = { id -> viewModel.editMessage(id, msg.text) },
-                            onDelete = { id -> viewModel.deleteMessage(id) },
-                        )
-                    }
-                    item {
-                        val last = group.messages.last()
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(
-                                    start  = if (last.isOwn) 0.dp else 14.dp,
-                                    end    = if (last.isOwn) 14.dp else 0.dp,
-                                    bottom = 6.dp,
-                                    top    = 2.dp,
-                                ),
-                            horizontalArrangement = if (last.isOwn) Arrangement.End else Arrangement.Start,
+
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
+                            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 72.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
                         ) {
-                            Text(
-                                text  = formatTime(last.timestampMs),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                            item {
+                                Box(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Lock,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(10.dp)
+                                        )
+                                        Text(
+                                            text = "Защищено сквозным шифрованием",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                        )
+                                    }
+                                }
+                            }
+                            val groups = groupMessages(state.messages)
+                            groups.forEach { group ->
+                                items(group.messages.size) { idx ->
+                                    val msg = group.messages[idx]
+                                    val isFirst = idx == 0
+                                    val isLast  = idx == group.messages.size - 1
+                                    MessageBubble(
+                                        message  = msg,
+                                        isFirst  = isFirst,
+                                        isLast   = isLast,
+                                        isSingle = group.messages.size == 1,
+                                        onEdit   = { id -> viewModel.editMessage(id, msg.text) },
+                                        onDelete = { id -> viewModel.deleteMessage(id) },
+                                    )
+                                }
+                                item {
+                                    val last = group.messages.last()
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(
+                                                start  = if (last.isOwn) 0.dp else 14.dp,
+                                                end    = if (last.isOwn) 14.dp else 0.dp,
+                                                bottom = 6.dp,
+                                                top    = 2.dp,
+                                            ),
+                                        horizontalArrangement = if (last.isOwn) Arrangement.End else Arrangement.Start,
+                                    ) {
+                                        Text(
+                                            text  = formatTime(last.timestampMs),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -1077,7 +1396,361 @@ private fun ChatPane(
     }
 }
 
+@Composable
+private fun MiteChatPane(
+    viewModel: ChatViewModel,
+    showBackButton: Boolean = false,
+    onBack: (() -> Unit)? = null,
+) {
+    val state by viewModel.state.collectAsState()
+    val chat = state.miteChats.firstOrNull { it.id == state.selectedMiteChatId }
+    val messages = chat?.messages.orEmpty()
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(messages.size, messages.lastOrNull()?.text, messages.lastOrNull()?.reasoning) {
+        if (messages.isNotEmpty()) {
+            listState.animateScrollToItem(messages.lastIndex)
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Surface(
+                tonalElevation = 2.dp,
+                modifier = Modifier.statusBarsPadding(),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    if (showBackButton && onBack != null) {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
+                        }
+                    }
+                    Box(
+                        modifier = Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            Icons.Default.Android,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(chat?.title ?: "Чат с Mite", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text(
+                            if (state.miteStreamingMessageId != null) "Печатает..." else "ИИ-помощник",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+
+            state.miteErrorMessage?.let { error ->
+                Surface(color = MaterialTheme.colorScheme.errorContainer) {
+                    Text(
+                        text = error,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                    )
+                }
+            }
+
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
+                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 72.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (messages.isEmpty()) {
+                    item {
+                        Box(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                Icon(
+                                    Icons.Default.Android,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(48.dp),
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                                Text(
+                                    "Спросите Mite о чём угодно",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                Text(
+                                    "Ответы передаются через ваш сервер Atlas.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center,
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    val groups = groupMiteMessages(messages)
+                    groups.forEach { group ->
+                        items(group.messages.size) { idx ->
+                            val message = group.messages[idx]
+                            MiteMessageBubble(
+                                message = message,
+                                isStreaming = message.id == state.miteStreamingMessageId,
+                                isFirst = idx == 0,
+                                isLast = idx == group.messages.size - 1,
+                                isSingle = group.messages.size == 1,
+                                onOpenAtlasSpace = viewModel::openAtlasSpace,
+                            )
+                        }
+                        item {
+                            val last = group.messages.last()
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(
+                                        start = if (last.isOwn) 0.dp else 14.dp,
+                                        end = if (last.isOwn) 14.dp else 0.dp,
+                                        bottom = 6.dp,
+                                        top = 2.dp,
+                                    ),
+                                horizontalArrangement = if (last.isOwn) Arrangement.End else Arrangement.Start,
+                            ) {
+                                Text(
+                                    text = if (last.id == state.miteStreamingMessageId) "Печатает..." else formatTime(last.timestampMs),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        ExpressiveMessageInput(
+            text = state.miteInputText,
+            onTextChange = viewModel::onMiteInputTextChanged,
+            onSendClick = viewModel::sendMiteMessage,
+            onAttachClick = {},
+            onVoiceClick = {},
+            showEmojiPicker = false,
+            onEmojiToggle = {},
+            onEmojiSelected = {},
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
+    }
+}
+
+@Composable
+private fun MiteMessageBubble(
+    message: MiteMessage,
+    isStreaming: Boolean,
+    isFirst: Boolean,
+    isLast: Boolean,
+    isSingle: Boolean,
+    onOpenAtlasSpace: (String, String) -> Unit,
+) {
+    ChatBubbleSurface(
+        isOwn = message.isOwn,
+        isFirst = isFirst,
+        isLast = isLast,
+        isSingle = isSingle,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (!message.isOwn && message.reasoning.isNotBlank()) {
+            var expanded by rememberSaveable(message.id) { mutableStateOf(isStreaming) }
+            Surface(
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                shape = RoundedCornerShape(12.dp),
+            ) {
+                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Icon(
+                            if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Text(
+                            "Ход рассуждений${if (isStreaming) "..." else ""}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                    if (expanded) {
+                        MarkdownText(
+                            text = message.reasoning,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
+
+        if (message.isOwn) {
+            Text(
+                text = message.text,
+                color = MaterialTheme.colorScheme.onPrimary,
+                style = MaterialTheme.typography.bodyLarge,
+            )
+        } else {
+            RenderMiteMessageContent(
+                text = if (message.text.isBlank() && isStreaming) "..." else message.text,
+                color = MaterialTheme.colorScheme.onSurface,
+                isStreaming = isStreaming,
+                onOpenAtlasSpace = onOpenAtlasSpace,
+            )
+        }
+    }
+}
+
+@Composable
+private fun RenderMiteMessageContent(
+    text: String,
+    color: Color,
+    isStreaming: Boolean,
+    onOpenAtlasSpace: (String, String) -> Unit,
+) {
+    val parts = remember(text, isStreaming) { parseAtlasSpaceParts(text, isStreaming) }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        parts.forEach { part ->
+            when (part) {
+                is AtlasSpacePart.Markdown -> MarkdownText(text = part.text, color = color)
+                is AtlasSpacePart.Space -> AtlasSpaceButton(html = part.html, onOpen = onOpenAtlasSpace)
+                AtlasSpacePart.Pending -> Text(
+                    text = "Mite создаёт пространство...",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AtlasSpaceButton(
+    html: String,
+    onOpen: (String, String) -> Unit,
+) {
+    TextButton(
+        onClick = { onOpen(html, "Atlas Space") },
+        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+    ) {
+        Icon(
+            Icons.Default.OpenInFull,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp),
+        )
+        Spacer(Modifier.width(6.dp))
+        Text("Открыть Atlas Space")
+    }
+}
+
+private sealed interface AtlasSpacePart {
+    data class Markdown(val text: String) : AtlasSpacePart
+    data class Space(val html: String) : AtlasSpacePart
+    data object Pending : AtlasSpacePart
+}
+
+private fun parseAtlasSpaceParts(text: String, isStreaming: Boolean): List<AtlasSpacePart> {
+    val parts = mutableListOf<AtlasSpacePart>()
+    var cursor = 0
+    val open = "{atlas_spaces}"
+    val close = "{/atlas_spaces}"
+    while (cursor < text.length) {
+        val start = text.indexOf(open, cursor)
+        if (start == -1) {
+            text.substring(cursor).trim().takeIf { it.isNotBlank() }?.let { parts.add(AtlasSpacePart.Markdown(it)) }
+            break
+        }
+        text.substring(cursor, start).trim().takeIf { it.isNotBlank() }?.let { parts.add(AtlasSpacePart.Markdown(it)) }
+        val contentStart = start + open.length
+        val end = text.indexOf(close, contentStart)
+        if (end == -1) {
+            if (isStreaming) parts.add(AtlasSpacePart.Pending)
+            break
+        }
+        val html = text.substring(contentStart, end).trim()
+        if (html.isNotBlank()) parts.add(AtlasSpacePart.Space(html))
+        cursor = end + close.length
+    }
+    return parts.ifEmpty { listOf(AtlasSpacePart.Markdown(text)) }
+}
+@Composable
+private fun MarkdownText(
+    text: String,
+    color: Color,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        val lines = text.lines()
+        var index = 0
+        while (index < lines.size) {
+            val line = lines[index]
+            if (line.trim().startsWith("```")) {
+                val codeLines = mutableListOf<String>()
+                index++
+                while (index < lines.size && !lines[index].trim().startsWith("```")) {
+                    codeLines.add(lines[index])
+                    index++
+                }
+                Surface(
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text = codeLines.joinToString("\n"),
+                        color = color,
+                        style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                        modifier = Modifier.padding(10.dp),
+                    )
+                }
+            } else if (line.isBlank()) {
+                Spacer(modifier = Modifier.height(2.dp))
+            } else {
+                val trimmed = line.trimStart()
+                val style = when {
+                    trimmed.startsWith("### ") -> MaterialTheme.typography.titleSmall
+                    trimmed.startsWith("## ") -> MaterialTheme.typography.titleMedium
+                    trimmed.startsWith("# ") -> MaterialTheme.typography.titleLarge
+                    else -> MaterialTheme.typography.bodyLarge
+                }
+                val display = when {
+                    trimmed.startsWith("### ") -> trimmed.removePrefix("### ")
+                    trimmed.startsWith("## ") -> trimmed.removePrefix("## ")
+                    trimmed.startsWith("# ") -> trimmed.removePrefix("# ")
+                    trimmed.startsWith("- ") -> "• ${trimmed.removePrefix("- ")}"
+                    trimmed.startsWith("* ") -> "• ${trimmed.removePrefix("* ")}"
+                    else -> trimmed
+                }
+                Text(
+                    text = display,
+                    color = color,
+                    style = style,
+                    fontWeight = if (style != MaterialTheme.typography.bodyLarge) FontWeight.SemiBold else FontWeight.Normal,
+                )
+            }
+            index++
+        }
+    }
+}
+
 private data class MessageGroup(val isOwn: Boolean, val messages: List<ChatMessage>)
+private data class MiteMessageGroup(val isOwn: Boolean, val messages: List<MiteMessage>)
 
 private fun groupMessages(messages: List<ChatMessage>): List<MessageGroup> {
     if (messages.isEmpty()) return emptyList()
@@ -1095,6 +1768,72 @@ private fun groupMessages(messages: List<ChatMessage>): List<MessageGroup> {
     return result
 }
 
+private fun groupMiteMessages(messages: List<MiteMessage>): List<MiteMessageGroup> {
+    if (messages.isEmpty()) return emptyList()
+    val result = mutableListOf<MiteMessageGroup>()
+    var current = mutableListOf(messages[0])
+    for (message in messages.drop(1)) {
+        if (message.isOwn == current.last().isOwn) {
+            current.add(message)
+        } else {
+            result.add(MiteMessageGroup(current[0].isOwn, current))
+            current = mutableListOf(message)
+        }
+    }
+    result.add(MiteMessageGroup(current[0].isOwn, current))
+    return result
+}
+
+@Composable
+private fun ChatBubbleSurface(
+    isOwn: Boolean,
+    isFirst: Boolean,
+    isLast: Boolean,
+    isSingle: Boolean,
+    modifier: Modifier = Modifier,
+    verticalArrangement: Arrangement.Vertical = Arrangement.Top,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val radiusLarge = 20.dp
+    val radiusSmall = 4.dp
+    val shape = if (isOwn) {
+        RoundedCornerShape(
+            topStart = radiusLarge,
+            topEnd = if (isFirst || isSingle) radiusLarge else radiusSmall,
+            bottomStart = radiusLarge,
+            bottomEnd = if (isLast || isSingle) radiusLarge else radiusSmall,
+        )
+    } else {
+        RoundedCornerShape(
+            topStart = if (isFirst || isSingle) radiusLarge else radiusSmall,
+            topEnd = radiusLarge,
+            bottomStart = if (isLast || isSingle) radiusLarge else radiusSmall,
+            bottomEnd = radiusLarge,
+        )
+    }
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 1.dp),
+        horizontalArrangement = if (isOwn) Arrangement.End else Arrangement.Start,
+    ) {
+        Surface(
+            shape = shape,
+            color = if (isOwn) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+            modifier = Modifier.widthIn(max = 480.dp),
+            shadowElevation = if (isOwn) 2.dp else 0.dp,
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalArrangement = verticalArrangement,
+                content = content,
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MessageBubble(
     message: ChatMessage,
@@ -1120,70 +1859,35 @@ private fun MessageBubble(
     }
 
     var showMenu by remember { mutableStateOf(false) }
-    var menuPosition by remember { mutableStateOf(Offset.Zero) }
-
-    val radiusLarge = 20.dp
-    val radiusSmall = 4.dp
-
-    val shape = if (message.isOwn) {
-        RoundedCornerShape(
-            topStart    = radiusLarge,
-            topEnd      = if (isFirst || isSingle) radiusLarge else radiusSmall,
-            bottomStart = radiusLarge,
-            bottomEnd   = if (isLast  || isSingle) radiusLarge else radiusSmall,
-        )
-    } else {
-        RoundedCornerShape(
-            topStart    = if (isFirst || isSingle) radiusLarge else radiusSmall,
-            topEnd      = radiusLarge,
-            bottomStart = if (isLast  || isSingle) radiusLarge else radiusSmall,
-            bottomEnd   = radiusLarge,
-        )
-    }
 
     Box {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 1.dp)
-                .combinedClickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = {},
-                    onLongClick = { 
-                        if (message.isOwn) {
-                            showMenu = true
-                        }
-                    },
-                ),
-            horizontalArrangement = if (message.isOwn) Arrangement.End else Arrangement.Start,
+        ChatBubbleSurface(
+            isOwn = message.isOwn,
+            isFirst = isFirst,
+            isLast = isLast,
+            isSingle = isSingle,
+            modifier = Modifier.combinedClickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = {},
+                onLongClick = {
+                    if (message.isOwn) showMenu = true
+                },
+            ),
         ) {
-            Surface(
-                shape = shape,
-                color = if (message.isOwn)
-                    MaterialTheme.colorScheme.primary
-                else
-                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
-                modifier = Modifier.widthIn(max = 480.dp),
-                shadowElevation = if (message.isOwn) 2.dp else 0.dp,
-            ) {
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
-                    Text(
-                        text = message.text,
-                        color = if (message.isOwn) MaterialTheme.colorScheme.onPrimary
-                                else MaterialTheme.colorScheme.onSurface,
-                        style = MaterialTheme.typography.bodyLarge,
-                    )
-                    if (message.isEdited) {
-                        Text(
-                            text = "(ред.)",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (message.isOwn) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.6f)
-                                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                            modifier = Modifier.align(Alignment.End),
-                        )
-                    }
-                }
+            Text(
+                text = message.text,
+                color = if (message.isOwn) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            if (message.isEdited) {
+                Text(
+                    text = "(ред.)",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (message.isOwn) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.6f)
+                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    modifier = Modifier.align(Alignment.End),
+                )
             }
         }
 
@@ -1209,6 +1913,126 @@ private fun MessageBubble(
     }
 }
 
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AtlasSpaceViewer(
+    html: String,
+    title: String,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    PlatformBackHandler(enabled = true, onBack = onClose)
+
+    val colors = MaterialTheme.colorScheme
+    val safeHtml = remember(html, colors.primary, colors.background, colors.onBackground, colors.onPrimary) {
+        prepareAtlasSpaceHtml(
+            rawHtml = html,
+            accent = colors.primary.toCssColor(),
+            background = colors.background.toCssColor(),
+            onBackground = colors.onBackground.toCssColor(),
+            onAccent = colors.onPrimary.toCssColor(),
+        )
+    }
+    val state = rememberWebViewStateWithHTMLData(
+        data = safeHtml,
+        baseUrl = "https://atlas.local/",
+        encoding = "utf-8",
+        mimeType = "text/html",
+        historyUrl = null,
+    )
+
+    DisposableEffect(state) {
+        state.webSettings.isJavaScriptEnabled = true
+        onDispose { }
+    }
+
+    Surface(modifier = modifier, color = MaterialTheme.colorScheme.background) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            TopAppBar(
+                title = { Text(title.ifBlank { "Atlas Space" }) },
+                navigationIcon = {
+                    IconButton(onClick = onClose) {
+                        Icon(Icons.Default.Close, contentDescription = "Закрыть")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = atlasAppBarColor()),
+            )
+            WebView(
+                state = state,
+                modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
+            )
+        }
+    }
+}
+
+private fun prepareAtlasSpaceHtml(
+    rawHtml: String,
+    accent: String,
+    background: String,
+    onBackground: String,
+    onAccent: String,
+): String {
+    val themeStyle = """
+        <style id="atlas-space-theme">
+            :root {
+                color-scheme: dark;
+                --atlas-accent: $accent;
+                --atlas-bg: $background;
+                --atlas-fg: $onBackground;
+                --atlas-on-accent: $onAccent;
+            }
+            html, body {
+                margin: 0;
+                min-height: 100%;
+                background: var(--atlas-bg) !important;
+                color: var(--atlas-fg) !important;
+            }
+            button, input[type="button"], input[type="submit"] {
+                background: var(--atlas-accent);
+                color: var(--atlas-on-accent);
+            }
+        </style>
+    """.trimIndent()
+    val fallbackBody = """
+        <div id="atlas-space-fallback" style="padding:24px;font-family:system-ui,sans-serif;background:$background;color:$onBackground;min-height:100vh;box-sizing:border-box;">
+            <h1 style="color:$accent;margin-top:0;">Atlas Space</h1>
+            <p>Если вы видите это, HTML загрузился, но содержимое пространства не отрисовалось.</p>
+        </div>
+    """.trimIndent()
+    val html = rawHtml.trim().let { value ->
+        if (value.contains("<html", ignoreCase = true)) value else """
+            <!doctype html>
+            <html>
+              <head><meta charset=\"utf-8\"><title>Atlas Space</title></head>
+              <body>$value</body>
+            </html>
+        """.trimIndent()
+    }
+    val withCsp = if (html.contains("Content-Security-Policy", ignoreCase = true)) {
+        html
+    } else {
+        val csp = """<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; media-src data: blob:; object-src 'none'; base-uri 'none'; form-action 'none'">"""
+        injectIntoHead(html, csp)
+    }
+    return injectIntoHead(withCsp, themeStyle)
+}
+
+private fun injectIntoHead(html: String, content: String): String {
+    val headIndex = html.indexOf("<head", ignoreCase = true)
+    if (headIndex == -1) return html.replace("<html>", "<html><head>$content</head>", ignoreCase = true)
+    val headClose = html.indexOf('>', headIndex)
+    if (headClose == -1) return html
+    return html.substring(0, headClose + 1) + content + html.substring(headClose + 1)
+}
+
+private fun Color.toCssColor(): String {
+    val a = (alpha * 255).toInt().coerceIn(0, 255)
+    val r = (red * 255).toInt().coerceIn(0, 255)
+    val g = (green * 255).toInt().coerceIn(0, 255)
+    val b = (blue * 255).toInt().coerceIn(0, 255)
+    return "rgba($r, $g, $b, ${a / 255.0})"
+}
 @Composable
 private fun EmptyPane() {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -1216,10 +2040,20 @@ private fun EmptyPane() {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            AnimatedEmptyState(
-                shapeSize = 100.dp,
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
-            )
+            Box(
+                modifier = Modifier
+                    .size(96.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Default.Lock,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.size(38.dp),
+                )
+            }
             Text(
                 "Выберите диалог, чтобы начать чат",
                 style = MaterialTheme.typography.titleLarge,
@@ -1242,6 +2076,29 @@ private fun SettingsGroupHeader(text: String, colors: ColorScheme) {
         style = MaterialTheme.typography.labelSmall,
         color = colors.onSurfaceVariant,
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+    )
+}
+
+@Composable
+private fun atlasSwitchColors(colors: ColorScheme = MaterialTheme.colorScheme): SwitchColors {
+    // switches should change mood with the theme, not stay trapped in dark mode
+    return SwitchDefaults.colors(
+        checkedThumbColor = colors.onPrimary,
+        checkedTrackColor = colors.primary,
+        checkedBorderColor = colors.primary,
+        checkedIconColor = colors.primary,
+        uncheckedThumbColor = colors.onSurfaceVariant,
+        uncheckedTrackColor = colors.surfaceContainerHigh,
+        uncheckedBorderColor = colors.outline,
+        uncheckedIconColor = colors.surfaceContainerHigh,
+        disabledCheckedThumbColor = colors.onSurface.copy(alpha = 0.38f),
+        disabledCheckedTrackColor = colors.onSurface.copy(alpha = 0.12f),
+        disabledCheckedBorderColor = colors.onSurface.copy(alpha = 0.12f),
+        disabledCheckedIconColor = colors.surface.copy(alpha = 0.38f),
+        disabledUncheckedThumbColor = colors.onSurface.copy(alpha = 0.38f),
+        disabledUncheckedTrackColor = colors.onSurface.copy(alpha = 0.08f),
+        disabledUncheckedBorderColor = colors.onSurface.copy(alpha = 0.12f),
+        disabledUncheckedIconColor = colors.surface.copy(alpha = 0.38f),
     )
 }
 
@@ -1271,7 +2128,7 @@ private fun AtlasBroadcastPane(viewModel: ChatViewModel, showHeader: Boolean = f
         if (showHeader) {
             TopAppBar(
                 title = { Text("Эфир Atlas", fontWeight = FontWeight.SemiBold) },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = colors.surface),
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = atlasAppBarColor()),
             )
         }
 
@@ -1413,6 +2270,7 @@ private fun SettingsTile(
     colors: ColorScheme,
     onClick: (() -> Unit)? = null,
     trailing: @Composable (() -> Unit)? = null,
+    bottomDivider: Boolean = false,
     shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(28.dp),
 ) {
     val clickableModifier = if (onClick != null) {
@@ -1421,7 +2279,7 @@ private fun SettingsTile(
         Modifier
     }
 
-    val iconTint = if (iconContainerColor.luminance() > 0.5f) Color.Black else Color.White
+    val iconTint = Color.White
 
     Surface(
         modifier = Modifier
@@ -1430,45 +2288,56 @@ private fun SettingsTile(
         shape = shape,
         color = colors.surfaceContainer,
     ) {
-        Row(
-            modifier = clickableModifier
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Surface(
-                modifier = Modifier.size(36.dp),
-                shape = RoundedCornerShape(10.dp),
-                color = iconContainerColor,
+        Column {
+            Row(
+                modifier = clickableModifier
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(icon, null, tint = iconTint, modifier = Modifier.size(18.dp))
+                Surface(
+                    modifier = Modifier.size(42.dp),
+                    shape = CircleShape,
+                    color = iconContainerColor,
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(icon, null, tint = iconTint, modifier = Modifier.size(21.dp))
+                    }
                 }
-            }
 
-            Spacer(modifier = Modifier.width(16.dp))
+                Spacer(modifier = Modifier.width(16.dp))
 
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    title,
-                    color = colors.onSurface,
-                    style = MaterialTheme.typography.bodyLarge.copy(
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 15.sp
-                    ),
-                )
-                if (subtitle.isNotEmpty()) {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        subtitle,
-                        color = colors.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            fontSize = 12.sp
+                        title,
+                        color = colors.onSurface,
+                        style = MaterialTheme.typography.bodyLarge.copy(
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 16.sp
                         ),
                     )
+                    if (subtitle.isNotEmpty()) {
+                        Text(
+                            subtitle,
+                            color = colors.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                fontSize = 13.sp
+                            ),
+                        )
+                    }
+                }
+
+                if (trailing != null) {
+                    Spacer(Modifier.width(12.dp))
+                    trailing()
                 }
             }
 
-            if (trailing != null) {
-                trailing()
+            if (bottomDivider) {
+                // android settings rows whisper their borders instead of shouting them
+                HorizontalDivider(
+                    modifier = Modifier.padding(start = 74.dp),
+                    color = colors.outlineVariant.copy(alpha = 0.35f),
+                )
             }
         }
     }
@@ -1480,6 +2349,14 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
     val state by viewModel.state.collectAsState()
     val colors = MaterialTheme.colorScheme
     var showAvatarPicker by remember { mutableStateOf(false) }
+    // varied little color pops, with white icons so the tiles still feel related
+    val settingsIconColors = listOf(
+        Color(0xFF5B7CFA),
+        Color(0xFF16A34A),
+        Color(0xFF0EA5E9),
+        Color(0xFF8B5CF6),
+        Color(0xFFEF4444),
+    )
 
     val presetColors = listOf(
         0xFF6750A4.toInt() to "Стандартный",
@@ -1538,13 +2415,13 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
                 TopAppBar(
                     title = { Text("Настройки", fontWeight = FontWeight.SemiBold) },
                     colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = colors.surface,
+                        containerColor = atlasAppBarColor(),
                     ),
                 )
             }
 
             LazyColumn(modifier = Modifier.fillMaxSize()) {
-                // ── Profile header ────────────────────────────────────────────
+                // start settings with the person, not the machinery
                 item {
                     Surface(
                         modifier = Modifier
@@ -1647,12 +2524,12 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp),
-                        shape = RoundedCornerShape(20.dp),
+                        shape = RoundedCornerShape(28.dp),
                         color = colors.surfaceContainer,
                     ) {
                         Column(
-                            modifier = Modifier.fillMaxWidth().padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
                             OutlinedTextField(
                                 value = state.displayNameInput,
@@ -1671,7 +2548,7 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
 
             item { Spacer(Modifier.height(8.dp)) }
 
-            // ── Accent colour ─────────────────────────────────────────────
+            // the fun color choice lives up front
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
@@ -1717,7 +2594,7 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
                                             scope.launch {
                                                 carouselState.scrollBy(delta * 100f)
                                             }
-                                            // Consume the event to prevent parent from scrolling
+                                            // keep the wheel focused here so the whole page does not jump
                                             event.changes.forEach { it.consume() }
                                         }
                                     }
@@ -1755,7 +2632,7 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
 
             item { Spacer(Modifier.height(20.dp)) }
 
-            // ── Color Preset ─────────────────────────────────────────────
+            // quick moods for people who do not want to tune every color
             item {
                 SettingsGroupHeader("ПРЕСЕТ ЦВЕТОВ", colors)
                 BoxWithConstraints(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
@@ -1811,9 +2688,7 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
 
             item { Spacer(Modifier.height(20.dp)) }
 
-            item { Spacer(Modifier.height(20.dp)) }
-
-            // ── Contrast ──────────────────────────────────────────────────
+            // readability controls, because pretty is useless if it hurts
             item {
                 SettingsGroupHeader("КОНТРАСТ", colors)
                 Surface(
@@ -1874,12 +2749,12 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
 
             item { Spacer(Modifier.height(20.dp)) }
 
-            // ── Privacy ───────────────────────────────────────────────────
+            // the privacy switches should be impossible to miss
             item {
                 SettingsGroupHeader("ПРИВАТНОСТЬ", colors)
                 SettingsTile(
                     icon = Icons.Filled.Public,
-                    iconContainerColor = colors.primary.copy(alpha = 0.8f),
+                    iconContainerColor = settingsIconColors[0],
                     title = "Публичный профиль",
                     subtitle = "Разрешить другим находить вас в поиске",
                     colors = colors,
@@ -1888,13 +2763,14 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
                         Switch(
                             checked = state.isPublic,
                             onCheckedChange = viewModel::onPublicStatusChanged,
+                            colors = atlasSwitchColors(colors),
                         )
                     },
                 )
-                Spacer(Modifier.height(2.dp))
+                Spacer(Modifier.height(3.dp))
                 SettingsTile(
                     icon = Icons.Filled.Mic,
-                    iconContainerColor = colors.secondary.copy(alpha = 0.8f),
+                    iconContainerColor = settingsIconColors[1],
                     title = "Микрофон",
                     subtitle = if (state.micEnabled) "Используется реальный микрофон" else "Симуляция бездействия",
                     colors = colors,
@@ -1903,6 +2779,7 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
                         Switch(
                             checked = state.micEnabled,
                             onCheckedChange = viewModel::onMicEnabledChanged,
+                            colors = atlasSwitchColors(colors),
                         )
                     },
                 )
@@ -1910,12 +2787,12 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
 
             item { Spacer(Modifier.height(20.dp)) }
 
-            // ── Server ────────────────────────────────────────────────────
+            // server settings for the moments when connection gets fussy
             item {
                 SettingsGroupHeader("СЕРВЕР", colors)
                 SettingsTile(
                     icon = Icons.Filled.Cloud,
-                    iconContainerColor = colors.tertiaryContainer,
+                    iconContainerColor = settingsIconColors[2],
                     title = "Адрес сервера",
                     subtitle = state.serverUrl,
                     colors = colors,
@@ -1935,12 +2812,12 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
 
             item { Spacer(Modifier.height(20.dp)) }
 
-            // ── Security ────────────────────────────────────────────────
+            // key details live here for the careful users
             item {
                 SettingsGroupHeader("БЕЗОПАСНОСТЬ", colors)
                 SettingsTile(
                     icon = Icons.Outlined.Fingerprint,
-                    iconContainerColor = colors.secondaryContainer,
+                    iconContainerColor = settingsIconColors[3],
                     title = "Отпечаток ключа",
                     subtitle = state.publicKeyFingerprint,
                     colors = colors,
@@ -1950,14 +2827,12 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
 
             item { Spacer(Modifier.height(20.dp)) }
 
-            item { Spacer(Modifier.height(20.dp)) }
-
-            // ── Account ─────────────────────────────────────────────────
+            // account exit stays separated so it is not tapped by accident
             item {
                 SettingsGroupHeader("АККАУНТ", colors)
                 SettingsTile(
                     icon = Icons.AutoMirrored.Outlined.Logout,
-                    iconContainerColor = colors.errorContainer,
+                    iconContainerColor = settingsIconColors[4],
                     title = "Выйти из аккаунта",
                     subtitle = "Отключиться и очистить локальные данные",
                     colors = colors,
@@ -1968,7 +2843,7 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
 
             item { Spacer(Modifier.height(32.dp)) }
 
-            // ── App info footer ───────────────────────────────────────────
+            // a small footer to let the screen breathe at the end
             item {
                 Column(
                     modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),

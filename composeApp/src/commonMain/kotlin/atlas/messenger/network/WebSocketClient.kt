@@ -41,7 +41,16 @@ sealed class ServerEvent {
     data class AllUsersReceived(val users: List<String>) : ServerEvent()
     data class ArchivedConversationsReceived(val peers: Set<String>) : ServerEvent()
     data class ConversationArchiveUpdated(val peer: String, val archived: Boolean) : ServerEvent()
+    data class MiteChatDelta(val id: String, val delta: String) : ServerEvent()
+    data class MiteChatReasoningDelta(val id: String, val delta: String) : ServerEvent()
+    data class MiteChatDone(val id: String) : ServerEvent()
+    data class MiteChatError(val id: String, val message: String) : ServerEvent()
 }
+
+data class MiteChatContextMessage(
+    val role: String,
+    val content: String,
+)
 
 data class HistoryEntry(
     val id: String,
@@ -69,7 +78,7 @@ class WebSocketClient(private val httpClient: HttpClient) {
                 println("DEBUG: WebSocket session established")
                 _connectionReady.complete(Unit)
 
-                // Perform initial actions (like auth) while inside the session block
+                // do the hello/auth work while the socket is still warm
                 onConnect()
 
                 try {
@@ -260,6 +269,22 @@ class WebSocketClient(private val httpClient: HttpClient) {
         })
     }
 
+    suspend fun sendMiteChatRequest(id: String, prompt: String, history: List<MiteChatContextMessage>) {
+        sendRaw(buildJsonObject {
+            put("type", "mite_chat_request")
+            put("id", id)
+            put("prompt", prompt)
+            putJsonArray("history") {
+                history.forEach { message ->
+                    addJsonObject {
+                        put("role", message.role)
+                        put("content", message.content)
+                    }
+                }
+            }
+        })
+    }
+
     fun disconnect() {
         session?.let { s ->
             CoroutineScope(Dispatchers.Default).launch { s.close() }
@@ -421,6 +446,21 @@ class WebSocketClient(private val httpClient: HttpClient) {
                 "conversation_archive_updated" -> ServerEvent.ConversationArchiveUpdated(
                     peer = obj["peer"]!!.jsonPrimitive.content,
                     archived = obj["archived"]!!.jsonPrimitive.boolean,
+                )
+                "mite_chat_delta" -> ServerEvent.MiteChatDelta(
+                    id = obj["id"]!!.jsonPrimitive.content,
+                    delta = obj["delta"]!!.jsonPrimitive.content,
+                )
+                "mite_chat_reasoning_delta" -> ServerEvent.MiteChatReasoningDelta(
+                    id = obj["id"]!!.jsonPrimitive.content,
+                    delta = obj["delta"]!!.jsonPrimitive.content,
+                )
+                "mite_chat_done" -> ServerEvent.MiteChatDone(
+                    id = obj["id"]!!.jsonPrimitive.content,
+                )
+                "mite_chat_error" -> ServerEvent.MiteChatError(
+                    id = obj["id"]!!.jsonPrimitive.content,
+                    message = obj["message"]!!.jsonPrimitive.content,
                 )
                 else -> return
             }

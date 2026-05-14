@@ -17,3 +17,13 @@ captures
 !*.xcworkspace/contents.xcworkspacedata
 **/xcshareddata/WorkspaceSettings.xcsettings
 node_modules/
+
+# Rust / server
+server/target/
+server/src/.env
+server/.env
+
+# Local runtime data
+*.db
+*.db-shm
+*.db-wal

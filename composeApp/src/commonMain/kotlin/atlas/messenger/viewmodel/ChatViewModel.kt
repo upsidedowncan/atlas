@@ -6,9 +6,12 @@ import atlas.messenger.crypto.EncryptionService
 import atlas.messenger.crypto.createEncryptionService
 import atlas.messenger.data.ChatMessage
 import atlas.messenger.network.HistoryEntry
+import atlas.messenger.network.MiteChatContextMessage
 import atlas.messenger.network.ServerEvent
 import atlas.messenger.network.WebSocketClient
 import atlas.messenger.audio.createAudioLevelMonitor
+import atlas.messenger.session.PersistedMiteChat
+import atlas.messenger.session.PersistedMiteMessage
 import atlas.messenger.session.SessionStore
 import atlas.messenger.session.UiPreferences
 import atlas.messenger.session.createSessionStore
@@ -66,6 +69,27 @@ data class ChatUiState(
     val atlasBroadcastImageUrl: String = "",
     val showArchive: Boolean = false,
     val archivedConversations: Set<String> = emptySet(),
+    val showMiteChats: Boolean = false,
+    val selectedMiteChatId: String? = null,
+    val miteChats: List<MiteChat> = emptyList(),
+    val miteInputText: String = "",
+    val miteStreamingMessageId: String? = null,
+    val miteErrorMessage: String? = null,
+    val activeAtlasSpaceHtml: String? = null,
+    val activeAtlasSpaceTitle: String? = null,
+)
+data class MiteChat(
+    val id: String,
+    val title: String,
+    val updatedAtMs: Long,
+    val messages: List<MiteMessage> = emptyList(),
+)
+data class MiteMessage(
+    val id: String,
+    val text: String,
+    val reasoning: String = "",
+    val isOwn: Boolean,
+    val timestampMs: Long,
 )
 data class AtlasDialog(
     val id: String,
@@ -102,7 +126,7 @@ class ChatViewModel : ViewModel() {
     init {
         sessionStore.load()?.let { (username, password) ->
             _state.update { it.copy(username = username, passwordInput = password) }
-            // Auto-connect if credentials exist
+            // saved credentials mean we can get the user home quickly
             if (username.isNotBlank() && password.isNotBlank()) {
                 connect()
             }
@@ -118,6 +142,23 @@ class ChatViewModel : ViewModel() {
                 )
             }
         }
+        val persistedMiteChats = sessionStore.loadMiteChats().map { chat ->
+            MiteChat(
+                id = chat.id,
+                title = chat.title,
+                updatedAtMs = chat.updatedAtMs,
+                messages = chat.messages.map { message ->
+                    MiteMessage(
+                        id = message.id,
+                        text = message.text,
+                        reasoning = message.reasoning,
+                        isOwn = message.isOwn,
+                        timestampMs = message.timestampMs,
+                    )
+                },
+            )
+        }.sortedByDescending { it.updatedAtMs }
+        _state.update { it.copy(miteChats = persistedMiteChats) }
         _state.update { it.copy(publicKeyFingerprint = computeFingerprint(encryption.publicKeyBase64)) }
     }
 
@@ -156,6 +197,12 @@ class ChatViewModel : ViewModel() {
                 showSearch = false,
                 searchQuery = "",
                 searchResults = emptyList(),
+                showSettings = false,
+                showUserDiscovery = false,
+                showAtlasBroadcast = false,
+                showArchive = false,
+                showMiteChats = false,
+                selectedMiteChatId = null,
                 conversations = if (peer in s.conversations) s.conversations else s.conversations + peer,
             )
         }
@@ -171,7 +218,7 @@ class ChatViewModel : ViewModel() {
     }
 
     fun openSettings() {
-        _state.update { it.copy(showSettings = true, showUserDiscovery = false, showAtlasBroadcast = false, showArchive = false) }
+        _state.update { it.copy(showSettings = true, showUserDiscovery = false, showAtlasBroadcast = false, showArchive = false, showMiteChats = false, selectedMiteChatId = null) }
     }
 
     fun closeSettings() {
@@ -179,7 +226,7 @@ class ChatViewModel : ViewModel() {
     }
 
     fun openAtlasBroadcast() {
-        _state.update { it.copy(showAtlasBroadcast = true, showSettings = false, showUserDiscovery = false, showArchive = false) }
+        _state.update { it.copy(showAtlasBroadcast = true, showSettings = false, showUserDiscovery = false, showArchive = false, showMiteChats = false, selectedMiteChatId = null) }
     }
 
     fun closeAtlasBroadcast() {
@@ -191,7 +238,8 @@ class ChatViewModel : ViewModel() {
     }
 
     fun openUserDiscovery() {
-        _state.update { it.copy(showUserDiscovery = true, showSettings = false, showAtlasBroadcast = false, showArchive = false) }
+        _state.update { it.copy(showUserDiscovery = true, showSettings = false, showAtlasBroadcast = false, showArchive = false, showMiteChats = false,
+                selectedMiteChatId = null, selectedPeer = null) }
         viewModelScope.launch {
             wsClient.fetchPublicUsers()
             state.value.conversations.forEach { ensureAvatarLoaded(it) }
@@ -207,11 +255,198 @@ class ChatViewModel : ViewModel() {
     }
 
     fun openArchive() {
-        _state.update { it.copy(showArchive = true, showSettings = false, showUserDiscovery = false, showAtlasBroadcast = false) }
+        _state.update { it.copy(showArchive = true, showSettings = false, showUserDiscovery = false, showAtlasBroadcast = false, showMiteChats = false,
+                selectedMiteChatId = null, selectedPeer = null) }
     }
 
     fun closeArchive() {
         _state.update { it.copy(showArchive = false) }
+    }
+
+    fun openMiteChats() {
+        _state.update {
+            it.copy(
+                showMiteChats = true,
+                selectedMiteChatId = null,
+                showArchive = false,
+                showSettings = false,
+                showUserDiscovery = false,
+                showAtlasBroadcast = false,
+                selectedPeer = null,
+                miteErrorMessage = null,
+            )
+        }
+    }
+
+    fun closeMiteChats() {
+        _state.update { it.copy(showMiteChats = false, selectedMiteChatId = null) }
+    }
+
+    fun startMiteChat() {
+        val now = currentTimeMs()
+        val chat = MiteChat(
+            id = Uuid.random().toString(),
+            title = "Новый чат с Mite",
+            updatedAtMs = now,
+        )
+        _state.update {
+            it.copy(
+                miteChats = listOf(chat) + it.miteChats,
+                selectedMiteChatId = chat.id,
+                showMiteChats = true,
+                miteInputText = "",
+                miteErrorMessage = null,
+            )
+        }
+        persistMiteChats()
+    }
+
+    fun openMiteChat(id: String) {
+        _state.update {
+            it.copy(
+                showMiteChats = true,
+                selectedMiteChatId = id,
+                showArchive = false,
+                showSettings = false,
+                showUserDiscovery = false,
+                showAtlasBroadcast = false,
+                selectedPeer = null,
+                miteErrorMessage = null,
+            )
+        }
+    }
+
+    fun deleteMiteChat(id: String) {
+        _state.update { s ->
+            s.copy(
+                miteChats = s.miteChats.filterNot { it.id == id },
+                selectedMiteChatId = if (s.selectedMiteChatId == id) null else s.selectedMiteChatId,
+            )
+        }
+        persistMiteChats()
+    }
+
+    fun closeMiteChat() {
+        _state.update { it.copy(selectedMiteChatId = null) }
+    }
+
+    fun onMiteInputTextChanged(value: String) {
+        _state.update { it.copy(miteInputText = value, miteErrorMessage = null) }
+    }
+
+    fun sendMiteMessage() {
+        val currentState = state.value
+        val prompt = currentState.miteInputText.trim()
+        if (prompt.isEmpty() || currentState.miteStreamingMessageId != null) return
+        val chatId = currentState.selectedMiteChatId ?: return
+
+        val requestId = Uuid.random().toString()
+        val now = currentTimeMs()
+        val userMessage = MiteMessage(
+            id = "${requestId}_user",
+            text = prompt,
+            isOwn = true,
+            timestampMs = now,
+        )
+        val assistantMessage = MiteMessage(
+            id = requestId,
+            text = "",
+            isOwn = false,
+            timestampMs = now + 1,
+        )
+        val chat = currentState.miteChats.firstOrNull { it.id == chatId } ?: return
+        val history = chat.messages
+            .filter { it.text.isNotBlank() }
+            .takeLast(24)
+            .map { message ->
+                MiteChatContextMessage(
+                    role = if (message.isOwn) "user" else "assistant",
+                    content = message.text,
+                )
+            }
+
+        _state.update { s ->
+            s.copy(
+                miteChats = s.miteChats.map { chat ->
+                    if (chat.id == chatId) {
+                        chat.copy(
+                            title = if (chat.messages.isEmpty()) prompt.take(48) else chat.title,
+                            updatedAtMs = now,
+                            messages = chat.messages + userMessage + assistantMessage,
+                        )
+                    } else chat
+                }.sortedByDescending { it.updatedAtMs },
+                miteInputText = "",
+                miteStreamingMessageId = requestId,
+                miteErrorMessage = null,
+            )
+        }
+        persistMiteChats()
+
+        viewModelScope.launch {
+            runCatching { wsClient.sendMiteChatRequest(requestId, prompt, history) }
+                .onFailure { e ->
+                    _state.update { s ->
+                        s.copy(
+                            miteStreamingMessageId = null,
+                            miteErrorMessage = "Ошибка Mite: ${e.message}",
+                        )
+                    }
+                    persistMiteChats()
+                }
+        }
+    }
+
+    private fun updateMiteAssistantMessage(
+        id: String,
+        textTransform: ((String) -> String)? = null,
+        reasoningTransform: ((String) -> String)? = null,
+    ) {
+        _state.update { s ->
+            s.copy(
+                miteChats = s.miteChats.map { chat ->
+                    val messages = chat.messages.map { message ->
+                        if (message.id == id) {
+                            message.copy(
+                                text = textTransform?.invoke(message.text) ?: message.text,
+                                reasoning = reasoningTransform?.invoke(message.reasoning) ?: message.reasoning,
+                            )
+                        } else message
+                    }
+                    val changed = messages != chat.messages
+                    if (changed) chat.copy(messages = messages, updatedAtMs = currentTimeMs()) else chat
+                }.sortedByDescending { it.updatedAtMs },
+            )
+        }
+        persistMiteChats()
+    }
+
+    private fun persistMiteChats() {
+        val chats = state.value.miteChats.map { chat ->
+            PersistedMiteChat(
+                id = chat.id,
+                title = chat.title,
+                updatedAtMs = chat.updatedAtMs,
+                messages = chat.messages.map { message ->
+                    PersistedMiteMessage(
+                        id = message.id,
+                        text = message.text,
+                        reasoning = message.reasoning,
+                        isOwn = message.isOwn,
+                        timestampMs = message.timestampMs,
+                    )
+                },
+            )
+        }
+        sessionStore.saveMiteChats(chats)
+    }
+
+    fun openAtlasSpace(html: String, title: String = "Atlas Space") {
+        _state.update { it.copy(activeAtlasSpaceHtml = html, activeAtlasSpaceTitle = title) }
+    }
+
+    fun closeAtlasSpace() {
+        _state.update { it.copy(activeAtlasSpaceHtml = null, activeAtlasSpaceTitle = null) }
     }
 
     fun onPublicStatusChanged(isPublic: Boolean) {
@@ -221,8 +456,7 @@ class ChatViewModel : ViewModel() {
 
     fun startCall(peer: String) {
         _state.update { it.copy(activeCallPeer = peer) }
-        // In a real app, we would send a signal via WebSocket
-        // Here we just simulate the call starting
+        // this is just enough call magic for now; real signaling can plug in here
         simulateAudioLevels()
     }
 
@@ -245,7 +479,7 @@ class ChatViewModel : ViewModel() {
                 }
             } else {
                 audioMonitor.stop()
-                // Static idle animation: very subtle breathing
+                // keep a soft little pulse so silence does not feel dead
                 var t = 0f
                 while (isActive) {
                     t += 0.05f
@@ -411,7 +645,7 @@ class ChatViewModel : ViewModel() {
             )
         }
 
-        // Optimistic local insert so Atlas sees the dialog immediately.
+        // show it right away so atlas feels instant, then let the server catch up
         _state.update {
             it.copy(
                 atlasDialogs = (it.atlasDialogs + AtlasDialog(
@@ -481,7 +715,7 @@ class ChatViewModel : ViewModel() {
             return
         }
 
-        // Parse server URL from state (format: ws://host:port or wss://host:port)
+        // be forgiving here; people paste server urls in all kinds of shapes
         val serverUrl = state.value.serverUrl
         val (host, port) = parseServerUrl(serverUrl)
 
@@ -969,6 +1203,32 @@ class ChatViewModel : ViewModel() {
                     }
                     s.copy(archivedConversations = next)
                 }
+            }
+
+            is ServerEvent.MiteChatDelta -> {
+                updateMiteAssistantMessage(event.id, textTransform = { it + event.delta })
+            }
+
+            is ServerEvent.MiteChatReasoningDelta -> {
+                updateMiteAssistantMessage(event.id, reasoningTransform = { it + event.delta })
+            }
+
+            is ServerEvent.MiteChatDone -> {
+                _state.update { s ->
+                    s.copy(miteStreamingMessageId = if (s.miteStreamingMessageId == event.id) null else s.miteStreamingMessageId)
+                }
+                persistMiteChats()
+            }
+
+            is ServerEvent.MiteChatError -> {
+                updateMiteAssistantMessage(event.id, textTransform = { current -> current.ifBlank { "Mite не смог ответить." } })
+                _state.update { s ->
+                    s.copy(
+                        miteStreamingMessageId = if (s.miteStreamingMessageId == event.id) null else s.miteStreamingMessageId,
+                        miteErrorMessage = event.message,
+                    )
+                }
+                persistMiteChats()
             }
 
             ServerEvent.Disconnected -> {

@@ -29,7 +29,7 @@ fun App() {
                 Screen.CHAT -> MainScreen(viewModel)
             }
             
-            // Global Call Overlay
+            // let the call take over the screen when someone is live
             if (state.activeCallPeer != null) {
                 CallScreen(viewModel)
             }
