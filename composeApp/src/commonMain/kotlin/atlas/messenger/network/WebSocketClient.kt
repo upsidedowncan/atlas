@@ -45,6 +45,7 @@ sealed class ServerEvent {
     data class MiteChatReasoningDelta(val id: String, val delta: String) : ServerEvent()
     data class MiteChatDone(val id: String) : ServerEvent()
     data class MiteChatError(val id: String, val message: String) : ServerEvent()
+    data class AtlasXImageReceived(val data: String?, val message: String?) : ServerEvent()
 }
 
 data class MiteChatContextMessage(
@@ -285,6 +286,13 @@ class WebSocketClient(private val httpClient: HttpClient) {
         })
     }
 
+    suspend fun fetchServerImage(path: String) {
+        sendRaw(buildJsonObject {
+            put("type", "fetch_server_image")
+            put("path", path)
+        })
+    }
+
     fun disconnect() {
         session?.let { s ->
             CoroutineScope(Dispatchers.Default).launch { s.close() }
@@ -461,6 +469,10 @@ class WebSocketClient(private val httpClient: HttpClient) {
                 "mite_chat_error" -> ServerEvent.MiteChatError(
                     id = obj["id"]!!.jsonPrimitive.content,
                     message = obj["message"]!!.jsonPrimitive.content,
+                )
+                "atlas_x_image" -> ServerEvent.AtlasXImageReceived(
+                    data = obj["data"]?.jsonPrimitive?.contentOrNull,
+                    message = obj["message"]?.jsonPrimitive?.contentOrNull,
                 )
                 else -> return
             }

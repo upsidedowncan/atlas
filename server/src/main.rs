@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::env;
 use std::net::SocketAddr;
+use std::path::{Component, Path};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -19,7 +20,6 @@ use tokio::sync::Mutex;
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 
 const OPENROUTER_API_KEY_FALLBACK: &str = "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";
-
 type SharedState = Arc<Mutex<State>>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -91,6 +91,8 @@ enum ClientFrame {
         #[serde(default)]
         history: Vec<MiteChatContextMessage>,
     },
+    #[serde(rename = "fetch_server_image")]
+    FetchServerImage { path: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -182,6 +184,8 @@ enum ServerFrame {
     MiteChatDone { id: String },
     #[serde(rename = "mite_chat_error")]
     MiteChatError { id: String, message: String },
+    #[serde(rename = "atlas_x_image")]
+    AtlasXImage { data: Option<String>, message: Option<String> },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -316,6 +320,28 @@ async fn handle_message(
                     id,
                     message: e.to_string(),
                 });
+            }
+        });
+        return Ok(());
+    }
+
+    if let ClientFrame::FetchServerImage { path } = frame.clone() {
+        username.as_ref().ok_or("Not authenticated")?;
+        let tx = tx.clone();
+        tokio::spawn(async move {
+            match fetch_server_image_data_url(&path).await {
+                Ok(data) => {
+                    let _ = send_frame(&tx, ServerFrame::AtlasXImage {
+                        data: Some(data),
+                        message: None,
+                    });
+                }
+                Err(e) => {
+                    let _ = send_frame(&tx, ServerFrame::AtlasXImage {
+                        data: None,
+                        message: Some(format!("Не удалось загрузить изображение сервера: {e}")),
+                    });
+                }
             }
         });
         return Ok(());
@@ -748,7 +774,40 @@ async fn handle_message(
             Ok(())
         }
         ClientFrame::MiteChatRequest { .. } => unreachable!("handled before acquiring state"),
+        ClientFrame::FetchServerImage { .. } => unreachable!("handled before acquiring state"),
     }
+}
+
+async fn fetch_server_image_data_url(path: &str) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    let relative = Path::new(path);
+    if relative.is_absolute() {
+        return Err("Абсолютные пути запрещены".into());
+    }
+    if relative
+        .components()
+        .any(|c| matches!(c, Component::ParentDir | Component::RootDir | Component::Prefix(_)))
+    {
+        return Err("Небезопасный путь".into());
+    }
+
+    let full_path = Path::new("assets").join(relative);
+    let bytes = tokio::fs::read(&full_path).await?;
+    let ext = full_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let content_type = match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "webp" => "image/webp",
+        "gif" => "image/gif",
+        "svg" => "image/svg+xml",
+        "bmp" => "image/bmp",
+        _ => "application/octet-stream",
+    };
+    let encoded = BASE64.encode(bytes);
+    Ok(format!("data:{};base64,{}", content_type, encoded))
 }
 #[derive(Debug, Deserialize)]
 struct OpenRouterChunk {

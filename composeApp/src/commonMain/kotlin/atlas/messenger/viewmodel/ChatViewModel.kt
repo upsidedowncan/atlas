@@ -77,6 +77,17 @@ data class ChatUiState(
     val miteErrorMessage: String? = null,
     val activeAtlasSpaceHtml: String? = null,
     val activeAtlasSpaceTitle: String? = null,
+    val draftByPeer: Map<String, String>? = emptyMap(),
+    val starredMessageIds: Set<String>? = emptySet(),
+    val showChatSearch: Boolean = false,
+    val chatSearchQuery: String = "",
+    val chatSearchMatchIds: List<String> = emptyList(),
+    val activeChatSearchMatchIndex: Int = -1,
+    val showAtlasXScreen: Boolean = false,
+    val showAtlasXPaymentScreen: Boolean = false,
+    val showAtlasXActivatedScreen: Boolean = false,
+    val atlasXSubscribed: Boolean = false,
+    val atlasXImageData: String? = null,
 )
 data class MiteChat(
     val id: String,
@@ -171,7 +182,14 @@ class ChatViewModel : ViewModel() {
     }
 
     fun onInputTextChanged(value: String) {
-        _state.update { it.copy(inputText = value) }
+        _state.update { s ->
+            val peer = s.selectedPeer
+            if (peer == null) s.copy(inputText = value)
+            else s.copy(
+                inputText = value,
+                draftByPeer = (s.draftByPeer ?: emptyMap()) + (peer to value),
+            )
+        }
     }
 
     fun onSearchQueryChanged(value: String) {
@@ -204,6 +222,11 @@ class ChatViewModel : ViewModel() {
                 showMiteChats = false,
                 selectedMiteChatId = null,
                 conversations = if (peer in s.conversations) s.conversations else s.conversations + peer,
+                inputText = (s.draftByPeer ?: emptyMap())[peer].orEmpty(),
+                showChatSearch = false,
+                chatSearchQuery = "",
+                chatSearchMatchIds = emptyList(),
+                activeChatSearchMatchIndex = -1,
             )
         }
         ensureAvatarLoaded(peer)
@@ -234,7 +257,107 @@ class ChatViewModel : ViewModel() {
     }
 
     fun closeChat() {
-        _state.update { it.copy(selectedPeer = null) }
+        _state.update {
+            it.copy(
+                selectedPeer = null,
+                showChatSearch = false,
+                chatSearchQuery = "",
+                chatSearchMatchIds = emptyList(),
+                activeChatSearchMatchIndex = -1,
+            )
+        }
+    }
+
+    fun openChatSearch() {
+        _state.update { it.copy(showChatSearch = true) }
+        recomputeChatSearch()
+    }
+
+    fun closeChatSearch() {
+        _state.update {
+            it.copy(
+                showChatSearch = false,
+                chatSearchQuery = "",
+                chatSearchMatchIds = emptyList(),
+                activeChatSearchMatchIndex = -1,
+            )
+        }
+    }
+
+    fun onChatSearchQueryChanged(value: String) {
+        _state.update { it.copy(chatSearchQuery = value) }
+        recomputeChatSearch()
+    }
+
+    fun nextChatSearchMatch() {
+        _state.update { s ->
+            if (s.chatSearchMatchIds.isEmpty()) return@update s
+            val next = (s.activeChatSearchMatchIndex + 1).mod(s.chatSearchMatchIds.size)
+            s.copy(activeChatSearchMatchIndex = next)
+        }
+    }
+
+    fun prevChatSearchMatch() {
+        _state.update { s ->
+            if (s.chatSearchMatchIds.isEmpty()) return@update s
+            val prev = if (s.activeChatSearchMatchIndex <= 0) s.chatSearchMatchIds.lastIndex else s.activeChatSearchMatchIndex - 1
+            s.copy(activeChatSearchMatchIndex = prev)
+        }
+    }
+
+    fun toggleStarMessage(messageId: String) {
+        _state.update { s ->
+            val current = s.starredMessageIds ?: emptySet()
+            val next = if (messageId in current) current - messageId else current + messageId
+            s.copy(starredMessageIds = next)
+        }
+    }
+
+    fun openAtlasXScreen() {
+        _state.update {
+            it.copy(
+                showAtlasXScreen = true,
+                showAtlasXPaymentScreen = false,
+                showAtlasXActivatedScreen = false,
+            )
+        }
+        viewModelScope.launch {
+            runCatching { wsClient.fetchServerImage("atlasx/thumbnail.png") }
+                .onFailure { e ->
+                    _state.update { it.copy(errorMessage = "Atlas X изображение: ${e.message}") }
+                }
+        }
+    }
+
+    fun closeAtlasXScreen() {
+        _state.update {
+            it.copy(
+                showAtlasXScreen = false,
+                showAtlasXPaymentScreen = false,
+                showAtlasXActivatedScreen = false,
+            )
+        }
+    }
+
+    fun openAtlasXPaymentScreen() {
+        _state.update {
+            it.copy(
+                showAtlasXScreen = false,
+                showAtlasXPaymentScreen = true,
+                showAtlasXActivatedScreen = false,
+            )
+        }
+    }
+
+    fun activateAtlasXSubscription() {
+        _state.update {
+            it.copy(
+                atlasXSubscribed = true,
+                showAtlasXScreen = false,
+                showAtlasXPaymentScreen = false,
+                showAtlasXActivatedScreen = true,
+            )
+        }
     }
 
     fun openUserDiscovery() {
@@ -773,6 +896,10 @@ class ChatViewModel : ViewModel() {
         if (text.isEmpty()) return
 
         _state.update { it.copy(inputText = "") }
+        _state.update { s ->
+            val peerDraft = s.selectedPeer ?: return@update s
+            s.copy(draftByPeer = (s.draftByPeer ?: emptyMap()) + (peerDraft to ""))
+        }
 
         if (peer == EVERYONE_PEER && currentState.username.equals("atlas", ignoreCase = true)) {
             val id = Uuid.random().toString()
@@ -831,6 +958,22 @@ class ChatViewModel : ViewModel() {
             }.onFailure { e ->
                 _state.update { it.copy(errorMessage = "Ошибка отправки: ${e.message}") }
             }
+        }
+    }
+
+    private fun recomputeChatSearch() {
+        _state.update { s ->
+            val query = s.chatSearchQuery.trim()
+            if (!s.showChatSearch || query.isEmpty()) {
+                return@update s.copy(chatSearchMatchIds = emptyList(), activeChatSearchMatchIndex = -1)
+            }
+            val matches = s.messages
+                .filter { !it.isDeleted && it.text.contains(query, ignoreCase = true) }
+                .map { it.id }
+            s.copy(
+                chatSearchMatchIds = matches,
+                activeChatSearchMatchIndex = if (matches.isEmpty()) -1 else 0,
+            )
         }
     }
 
@@ -950,6 +1093,7 @@ class ChatViewModel : ViewModel() {
                     )
                 }
                 grouped.keys.forEach { ensureAvatarLoaded(it) }
+                recomputeChatSearch()
             }
 
             is ServerEvent.MessageReceived -> {
@@ -992,6 +1136,7 @@ class ChatViewModel : ViewModel() {
                         }
                     }
                     ensureAvatarLoaded(peer)
+                    recomputeChatSearch()
                 }.onFailure { e ->
                     _state.update { it.copy(errorMessage = "Ошибка расшифровки: ${e.message}") }
                 }
@@ -1082,6 +1227,7 @@ class ChatViewModel : ViewModel() {
                         val updatedMessages = if (s.selectedPeer != null) newAllMessages[s.selectedPeer] ?: s.messages else s.messages
                         s.copy(allMessages = newAllMessages, messages = updatedMessages)
                     }
+                    recomputeChatSearch()
                 }.onFailure { e ->
                     _state.update { it.copy(errorMessage = "Ошибка расшифровки редактирования: ${e.message}") }
                 }
@@ -1099,6 +1245,7 @@ class ChatViewModel : ViewModel() {
                     val updatedMessages = if (s.selectedPeer != null) newAllMessages[s.selectedPeer] ?: s.messages else s.messages
                     s.copy(allMessages = newAllMessages, messages = updatedMessages)
                 }
+                recomputeChatSearch()
             }
             is ServerEvent.AtlasDialogReceived -> {
                 val lines = event.text.lines()
@@ -1142,6 +1289,7 @@ class ChatViewModel : ViewModel() {
                         )
                     }
                 }
+                recomputeChatSearch()
             }
 
             is ServerEvent.DisplayNamesReceived -> {
@@ -1189,6 +1337,7 @@ class ChatViewModel : ViewModel() {
                         archivedConversations = s.archivedConversations + peer,
                     )
                 }
+                recomputeChatSearch()
             }
 
             is ServerEvent.ArchivedConversationsReceived -> {
@@ -1230,6 +1379,14 @@ class ChatViewModel : ViewModel() {
                     )
                 }
                 persistMiteChats()
+            }
+            is ServerEvent.AtlasXImageReceived -> {
+                _state.update { s ->
+                    s.copy(
+                        atlasXImageData = event.data ?: s.atlasXImageData,
+                        errorMessage = event.message ?: s.errorMessage,
+                    )
+                }
             }
 
             ServerEvent.Disconnected -> {

@@ -1,8 +1,13 @@
 package atlas.messenger.ui
 
+import androidx.compose.animation.core.*
+import kotlin.math.PI
+import kotlin.math.sin
+import kotlin.random.Random
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -46,13 +51,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -60,7 +72,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.drawscope.withTransform
 import coil3.compose.AsyncImage
 import atlas.messenger.data.ChatMessage
 import atlas.messenger.viewmodel.ChatViewModel
@@ -233,6 +245,27 @@ fun MainScreen(viewModel: ChatViewModel) {
                 modifier = Modifier.fillMaxSize(),
             )
         }
+        if (state.showAtlasXScreen) {
+            AtlasXScreen(
+                imageDataUrl = state.atlasXImageData,
+                onSubscribe = viewModel::openAtlasXPaymentScreen,
+                onClose = viewModel::closeAtlasXScreen,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        if (state.showAtlasXPaymentScreen) {
+            AtlasXPaymentScreen(
+                onBack = viewModel::openAtlasXScreen,
+                onPay = viewModel::activateAtlasXSubscription,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        if (state.showAtlasXActivatedScreen) {
+            AtlasXActivatedScreen(
+                onDone = viewModel::closeAtlasXScreen,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
     }
 }
 
@@ -257,12 +290,17 @@ private fun MobileMainScreen(viewModel: ChatViewModel) {
             showChat ||
             state.selectedMiteChatId != null ||
             state.showMiteChats ||
-            state.showArchive
+            state.showArchive ||
+            state.showAtlasXScreen ||
+            state.showAtlasXPaymentScreen ||
+            state.showAtlasXActivatedScreen
 
     PlatformBackHandler(enabled = hasMobileBackTarget) {
         // keep one steady android back hook so gestures leave app screens, not the app
         when {
             state.showUserDiscovery -> viewModel.closeUserDiscovery()
+            state.showAtlasXPaymentScreen -> viewModel.openAtlasXScreen()
+            state.showAtlasXScreen || state.showAtlasXActivatedScreen -> viewModel.closeAtlasXScreen()
             showChat -> viewModel.closeChat()
             state.selectedMiteChatId != null -> viewModel.closeMiteChat()
             state.showMiteChats -> viewModel.closeMiteChats()
@@ -1228,7 +1266,10 @@ private fun ChatPane(
     onBack: (() -> Unit)? = null,
 ) {
     val state by viewModel.state.collectAsState()
+    val clipboard = LocalClipboardManager.current
     val listState = rememberLazyListState()
+    val chatSearchBarState = rememberSearchBarState()
+    val chatSearchFieldState = rememberTextFieldState(state.chatSearchQuery)
     val peer = state.selectedPeer ?: return
     val peerDisplayName = displayNameFor(state, peer)
     val isEveryone = peer == ChatViewModel.EVERYONE_PEER
@@ -1242,6 +1283,27 @@ private fun ChatPane(
             val groups = groupMessages(state.messages)
             val totalItems = state.messages.size + groups.size
             listState.animateScrollToItem(totalItems - 1)
+        }
+    }
+    val activeMatchId = state.chatSearchMatchIds.getOrNull(state.activeChatSearchMatchIndex)
+    val messageIndexById = remember(state.messages) { state.messages.mapIndexed { index, msg -> msg.id to index }.toMap() }
+    LaunchedEffect(activeMatchId) {
+        val messageIndex = activeMatchId?.let { messageIndexById[it] } ?: return@LaunchedEffect
+        val groupsBefore = groupMessages(state.messages.take(messageIndex))
+        val groupBreaksBefore = groupsBefore.size
+        val targetItem = 1 + messageIndex + groupBreaksBefore
+        listState.animateScrollToItem(targetItem.coerceAtLeast(0))
+    }
+    LaunchedEffect(state.chatSearchQuery) {
+        val query = state.chatSearchQuery
+        if (chatSearchFieldState.text.toString() != query) {
+            chatSearchFieldState.setTextAndPlaceCursorAtEnd(query)
+        }
+    }
+    LaunchedEffect(chatSearchFieldState.text) {
+        val query = chatSearchFieldState.text.toString()
+        if (query != state.chatSearchQuery) {
+            viewModel.onChatSearchQueryChanged(query)
         }
     }
 
@@ -1273,6 +1335,14 @@ private fun ChatPane(
                     }
                 },
                 actions = {
+                    IconButton(onClick = {
+                        if (state.showChatSearch) viewModel.closeChatSearch() else viewModel.openChatSearch()
+                    }) {
+                        Icon(
+                            if (state.showChatSearch) Icons.Default.Close else Icons.Default.Search,
+                            contentDescription = if (state.showChatSearch) "Закрыть поиск" else "Поиск по чату",
+                        )
+                    }
                     if (!isEveryone) {
                         IconButton(onClick = { viewModel.startCall(peer) }) {
                             Icon(
@@ -1309,6 +1379,39 @@ private fun ChatPane(
                                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
                                 )
                             }
+                        }
+                        if (state.showChatSearch) {
+                            SearchBar(
+                                state = chatSearchBarState,
+                                inputField = {
+                                    SearchBarDefaults.InputField(
+                                        searchBarState = chatSearchBarState,
+                                        textFieldState = chatSearchFieldState,
+                                        onSearch = {},
+                                        placeholder = { Text("Поиск сообщений…") },
+                                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                                        trailingIcon = {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text(
+                                                    text = if (state.chatSearchMatchIds.isEmpty()) "0"
+                                                    else "${state.activeChatSearchMatchIndex + 1}/${state.chatSearchMatchIds.size}",
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                )
+                                                IconButton(onClick = viewModel::prevChatSearchMatch, enabled = state.chatSearchMatchIds.isNotEmpty()) {
+                                                    Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Предыдущее совпадение")
+                                                }
+                                                IconButton(onClick = viewModel::nextChatSearchMatch, enabled = state.chatSearchMatchIds.isNotEmpty()) {
+                                                    Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Следующее совпадение")
+                                                }
+                                            }
+                                        },
+                                    )
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                            )
                         }
 
                         LazyColumn(
@@ -1351,8 +1454,14 @@ private fun ChatPane(
                                         isFirst  = isFirst,
                                         isLast   = isLast,
                                         isSingle = group.messages.size == 1,
+                                        isStarred = msg.id in (state.starredMessageIds ?: emptySet()),
+                                        isSearchHit = msg.id in state.chatSearchMatchIds,
+                                        isActiveSearchHit = msg.id == activeMatchId,
+                                        searchQuery = state.chatSearchQuery,
                                         onEdit   = { id -> viewModel.editMessage(id, msg.text) },
                                         onDelete = { id -> viewModel.deleteMessage(id) },
+                                        onCopy = { clipboard.setText(AnnotatedString(msg.text)) },
+                                        onToggleStar = { id -> viewModel.toggleStarMessage(id) },
                                     )
                                 }
                                 item {
@@ -1391,6 +1500,8 @@ private fun ChatPane(
             showEmojiPicker = state.showEmojiPicker,
             onEmojiToggle = viewModel::toggleEmojiPicker,
             onEmojiSelected = viewModel::insertEmoji,
+            maxLength = if (state.atlasXSubscribed) 20_000 else 2_000,
+            onLimitExceeded = viewModel::openAtlasXScreen,
             modifier = Modifier.align(Alignment.BottomCenter),
         )
     }
@@ -1545,6 +1656,8 @@ private fun MiteChatPane(
             showEmojiPicker = false,
             onEmojiToggle = {},
             onEmojiSelected = {},
+            maxLength = if (state.atlasXSubscribed) 20_000 else 2_000,
+            onLimitExceeded = viewModel::openAtlasXScreen,
             modifier = Modifier.align(Alignment.BottomCenter),
         )
     }
@@ -1840,8 +1953,14 @@ private fun MessageBubble(
     isFirst: Boolean,
     isLast: Boolean,
     isSingle: Boolean,
+    isStarred: Boolean = false,
+    isSearchHit: Boolean = false,
+    isActiveSearchHit: Boolean = false,
+    searchQuery: String = "",
     onEdit: ((String) -> Unit)? = null,
     onDelete: ((String) -> Unit)? = null,
+    onCopy: (() -> Unit)? = null,
+    onToggleStar: ((String) -> Unit)? = null,
 ) {
     if (message.isDeleted) {
         Row(
@@ -1871,15 +1990,32 @@ private fun MessageBubble(
                 indication = null,
                 onClick = {},
                 onLongClick = {
-                    if (message.isOwn) showMenu = true
+                    showMenu = true
                 },
             ),
         ) {
+            val textColor = if (message.isOwn) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
             Text(
-                text = message.text,
-                color = if (message.isOwn) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                text = highlightedMessageText(
+                    text = message.text,
+                    query = searchQuery,
+                    highlightColor = if (message.isOwn) {
+                        MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.28f)
+                    } else {
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)
+                    },
+                ),
+                color = textColor,
                 style = MaterialTheme.typography.bodyLarge,
             )
+            if (isSearchHit) {
+                Text(
+                    text = if (isActiveSearchHit) "Активное совпадение" else "Совпадение",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (message.isOwn) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f)
+                    else MaterialTheme.colorScheme.primary,
+                )
+            }
             if (message.isEdited) {
                 Text(
                     text = "(ред.)",
@@ -1889,26 +2025,52 @@ private fun MessageBubble(
                     modifier = Modifier.align(Alignment.End),
                 )
             }
+            if (isStarred) {
+                Icon(
+                    Icons.Default.Star,
+                    contentDescription = "Помечено",
+                    tint = if (message.isOwn) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f) else MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(14.dp).align(Alignment.End),
+                )
+            }
         }
 
         DropdownMenu(
             expanded = showMenu,
             onDismissRequest = { showMenu = false },
         ) {
+            if (message.isOwn) {
+                DropdownMenuItem(
+                    text = { Text("Редактировать") },
+                    onClick = {
+                        showMenu = false
+                        onEdit?.invoke(message.id)
+                    },
+                )
+            }
             DropdownMenuItem(
-                text = { Text("Редактировать") },
+                text = { Text("Копировать") },
                 onClick = {
                     showMenu = false
-                    onEdit?.invoke(message.id)
+                    onCopy?.invoke()
                 },
             )
             DropdownMenuItem(
-                text = { Text("Удалить") },
+                text = { Text(if (isStarred) "Убрать из избранного" else "В избранное") },
                 onClick = {
                     showMenu = false
-                    onDelete?.invoke(message.id)
+                    onToggleStar?.invoke(message.id)
                 },
             )
+            if (message.isOwn) {
+                DropdownMenuItem(
+                    text = { Text("Удалить") },
+                    onClick = {
+                        showMenu = false
+                        onDelete?.invoke(message.id)
+                    },
+                )
+            }
         }
     }
 }
@@ -2947,6 +3109,8 @@ private fun ExpressiveMessageInput(
     showEmojiPicker: Boolean,
     onEmojiToggle: () -> Unit,
     onEmojiSelected: (String) -> Unit,
+    onLimitExceeded: () -> Unit = {},
+    maxLength: Int = 2000,
     modifier: Modifier = Modifier,
 ) {
     val textFieldState = rememberTextFieldState(text)
@@ -3013,9 +3177,15 @@ private fun ExpressiveMessageInput(
                             .imePadding()
                             .onKeyEvent { event ->
                                 if (event.key == Key.Enter && textFieldState.text.isNotBlank()) {
-                                    onSendClick()
+                                    if (textFieldState.text.length <= maxLength) {
+                                        onSendClick()
+                                    } else {
+                                        onLimitExceeded()
+                                    }
                                     true
-                                } else false
+                                } else {
+                                    false
+                                }
                             },
                         textStyle = MaterialTheme.typography.bodyLarge.copy(
                             color = MaterialTheme.colorScheme.onSurface,
@@ -3047,9 +3217,24 @@ private fun ExpressiveMessageInput(
 
                 Spacer(Modifier.width(4.dp))
 
+                val chars = textFieldState.text.length
                 val isTyping = textFieldState.text.isNotBlank()
+                val nearLimit = chars >= (maxLength * 0.85f).toInt()
+                if (nearLimit || chars > maxLength) {
+                    Text(
+                        text = "$chars/$maxLength",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (chars > maxLength) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 IconButton(
-                    onClick = { if (isTyping) onSendClick() else onVoiceClick() },
+                    onClick = {
+                        if (isTyping) {
+                            if (chars <= maxLength) onSendClick() else onLimitExceeded()
+                        } else {
+                            onVoiceClick()
+                        }
+                    },
                     modifier = Modifier
                         .size(40.dp)
                         .clip(CircleShape)
@@ -3063,6 +3248,661 @@ private fun ExpressiveMessageInput(
                     )
                 }
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AtlasXScreen(
+    imageDataUrl: String?,
+    onSubscribe: () -> Unit,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    PlatformBackHandler(enabled = true, onBack = onClose)
+
+    val primary = MaterialTheme.colorScheme.primary
+
+    Scaffold(
+        modifier = modifier,
+        topBar = {
+            LargeTopAppBar(
+                title = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        AtlasXLogo(modifier = Modifier.size(28.dp))
+                        Text("Atlas X")
+                    }
+                },
+                navigationIcon = {
+                    IconButton(onClick = onClose) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
+                    }
+                },
+                colors = TopAppBarDefaults.largeTopAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                ),
+            )
+        },
+        containerColor = MaterialTheme.colorScheme.background,
+        bottomBar = {
+            Surface(
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 3.dp,
+                shadowElevation = 6.dp,
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                        .navigationBarsPadding(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Button(
+                        onClick = onSubscribe,
+                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = primary,
+                        ),
+                    ) {
+                        Text("Подписаться на Atlas X", fontWeight = FontWeight.SemiBold)
+                    }
+                    TextButton(onClick = onClose, modifier = Modifier.fillMaxWidth()) {
+                        Text("Продолжить бесплатно", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        },
+    ) { padding ->
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding),
+        ) {
+            val isDesktop = maxWidth >= 840.dp
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            if (isDesktop) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = 980.dp)
+                        .padding(horizontal = 24.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    AtlasXHeroCard(
+                        imageDataUrl = imageDataUrl,
+                        modifier = Modifier.weight(1.05f),
+                    )
+                    Column(
+                        modifier = Modifier.weight(0.95f),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        AtlasXFeatureCard("20 000 символов в сообщении", "Отправляйте большие тексты без разбиения.", Icons.Default.Message)
+                        AtlasXFeatureCard("Приоритет Mite", "Ускоренные ответы и расширенные AI-возможности.", Icons.Default.Bolt)
+                        AtlasXFeatureCard("Эксклюзивные темы", "Новые стили интерфейса и расширенная персонализация.", Icons.Default.Palette)
+                        AtlasXFeatureCard("Скоростной канал", "Более низкая задержка и приоритетная доставка.", Icons.Default.Speed)
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+            } else {
+                val contentMaxWidth = 520.dp
+                AtlasXHeroCard(
+                    imageDataUrl = imageDataUrl,
+                    modifier = Modifier
+                        .widthIn(max = contentMaxWidth)
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                )
+
+                Column(
+                    modifier = Modifier
+                        .widthIn(max = contentMaxWidth)
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    AtlasXFeatureCard("20 000 символов в сообщении", "Отправляйте большие тексты без разбиения.", Icons.Default.Message)
+                    AtlasXFeatureCard("Приоритет Mite", "Ускоренные ответы и расширенные AI-возможности.", Icons.Default.Bolt)
+                    AtlasXFeatureCard("Эксклюзивные темы", "Новые стили интерфейса и расширенная персонализация.", Icons.Default.Palette)
+                    AtlasXFeatureCard("Скоростной канал", "Более низкая задержка и приоритетная доставка.", Icons.Default.Speed)
+                }
+                Spacer(Modifier.height(16.dp))
+            }
+        }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AtlasXPaymentScreen(
+    onBack: () -> Unit,
+    onPay: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    PlatformBackHandler(enabled = true, onBack = onBack)
+
+    val primary = MaterialTheme.colorScheme.primary
+
+    Scaffold(
+        modifier = modifier,
+        topBar = {
+            TopAppBar(
+                title = { Text("Оплата Atlas X") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
+            )
+        },
+        bottomBar = {
+            Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 3.dp, shadowElevation = 6.dp) {
+                Button(
+                    onClick = onPay,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                        .navigationBarsPadding()
+                        .height(52.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = primary,
+                    ),
+                ) {
+                    Text("Оплатить и активировать", fontWeight = FontWeight.SemiBold)
+                }
+            }
+        },
+        containerColor = MaterialTheme.colorScheme.background,
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            ElevatedCard(
+                modifier = Modifier.fillMaxWidth().widthIn(max = 520.dp),
+                colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    ListItem(
+                        headlineContent = { Text("Atlas X Monthly", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface) },
+                        supportingContent = { Text("Фейковый экран оплаты для предпросмотра подписки.", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                        leadingContent = {
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                modifier = Modifier.size(40.dp),
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.Lock, contentDescription = null, tint = primary, modifier = Modifier.size(20.dp))
+                                }
+                            }
+                        },
+                        trailingContent = { Text("${'$'}4.99", fontWeight = FontWeight.Bold, color = primary) },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    )
+                    HorizontalDivider()
+                    OutlinedTextField(
+                        value = "4242 4242 4242 4242",
+                        onValueChange = {},
+                        label = { Text("Номер карты") },
+                        readOnly = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        OutlinedTextField(
+                            value = "12/30",
+                            onValueChange = {},
+                            label = { Text("Срок") },
+                            readOnly = true,
+                            modifier = Modifier.weight(1f),
+                        )
+                        OutlinedTextField(
+                            value = "123",
+                            onValueChange = {},
+                            label = { Text("CVC") },
+                            readOnly = true,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    Text(
+                        "Это заглушка. Деньги не списываются.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AtlasXActivatedScreen(
+    onDone: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    PlatformBackHandler(enabled = true, onBack = onDone)
+
+    val primary = MaterialTheme.colorScheme.primary
+    val unlockedFeatures = listOf(
+        Triple(Icons.Default.AutoAwesome, "20 000 символов", "Отправляйте большие тексты без ограничений"),
+        Triple(Icons.Default.Bolt, "Приоритет Mite", "Ускоренные ответы и расширенные AI-возможности"),
+        Triple(Icons.Default.Palette, "Эксклюзивные темы", "Новые стили интерфейса и персонализация"),
+        Triple(Icons.Default.Speed, "Скоростной канал", "Низкая задержка и приоритетная доставка"),
+        Triple(Icons.Default.Star, "Расширенные лимиты", "Увеличенные квоты на все операции"),
+        Triple(Icons.Default.Verified, "X-бейдж", "Отметка подписчика в профиле"),
+    )
+
+    Scaffold(
+        modifier = modifier,
+        containerColor = MaterialTheme.colorScheme.background,
+        bottomBar = {
+            Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 3.dp, shadowElevation = 6.dp) {
+                Button(
+                    onClick = onDone,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                        .navigationBarsPadding()
+                        .height(52.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = primary,
+                    ),
+                ) {
+                    Text("Продолжить", fontWeight = FontWeight.SemiBold)
+                }
+            }
+        },
+    ) { padding ->
+        Box(
+            modifier = Modifier.fillMaxSize().padding(padding),
+        ) {
+            ParticleCelebration(
+                modifier = Modifier.fillMaxSize(),
+                particleCount = 50,
+            )
+
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp)
+                    .verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Spacer(Modifier.height(32.dp))
+
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.size(96.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.size(56.dp),
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(16.dp))
+
+                Text(
+                    "Atlas X активирован",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    textAlign = TextAlign.Center,
+                )
+
+                Text(
+                    "Добро пожаловать в премиум",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+
+                Spacer(Modifier.height(24.dp))
+
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    modifier = Modifier.fillMaxWidth().widthIn(max = 480.dp),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(
+                            "Разблокировано",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = primary,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        )
+
+                        unlockedFeatures.forEach { (icon, title, desc) ->
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = MaterialTheme.colorScheme.primaryContainer,
+                                        modifier = Modifier.size(36.dp),
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                icon,
+                                                contentDescription = null,
+                                                tint = primary,
+                                                modifier = Modifier.size(18.dp),
+                                            )
+                                        }
+                                    }
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                                    ) {
+                                        Text(
+                                            title,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                        )
+                                        Text(
+                                            desc,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(100.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun ParticleCelebration(
+    modifier: Modifier = Modifier,
+    particleCount: Int = 50,
+) {
+    val particles = remember {
+        List(particleCount) {
+            Particle(
+                x = Random.nextFloat() * 100f,
+                y = Random.nextFloat() * 100f,
+                size = Random.nextFloat() * 8f + 4f,
+                color = listOf(
+                    Color(0xFFFF6B6B),
+                    Color(0xFF4ECDC4),
+                    Color(0xFFFFE66D),
+                    Color(0xFF95E1D3),
+                    Color(0xFFF38181),
+                    Color(0xFFAA96DA),
+                    Color(0xFFFFA07A),
+                    Color(0xFF87CEEB),
+                ).random(),
+                speed = Random.nextFloat() * 0.7f + 0.3f,
+                wobble = Random.nextFloat() * 1.5f + 0.5f,
+                wobbleSpeed = Random.nextFloat() * 3f + 1f,
+                rotationSpeed = (Random.nextFloat() * 2.5f + 0.5f) * (if (Random.nextBoolean()) 1f else -1f),
+                isCircle = Random.nextBoolean(),
+                delay = Random.nextFloat() * 3f,
+            )
+        }
+    }
+
+    val infiniteTransition = rememberInfiniteTransition(label = "particles")
+    val time by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 100f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(10000, easing = LinearEasing),
+        ),
+        label = "time",
+    )
+
+    Canvas(modifier = modifier) {
+        val width = size.width
+        val height = size.height
+
+        particles.forEach { particle ->
+            val t = ((time * particle.speed + particle.delay) % 100f) / 100f
+            val x = (particle.x / 100f) * width + sin((t * particle.wobbleSpeed * PI).toDouble()).toFloat() * particle.wobble * 30f
+            val y = ((particle.y / 100f) * height + t * height * 1.2f) % (height + 50f) - 25f
+            val alpha = if (t < 0.1f) t / 0.1f else if (t > 0.85f) (1f - t) / 0.15f else 1f
+            val rotation = t * particle.rotationSpeed * 360f
+
+            withTransform({
+                translate(x, y)
+                rotate(rotation)
+            }) {
+                drawRect(
+                    color = particle.color.copy(alpha = alpha * 0.85f),
+                    size = androidx.compose.ui.geometry.Size(particle.size, particle.size * 1.5f),
+                )
+            }
+        }
+    }
+}
+
+private data class Particle(
+    val x: Float,
+    val y: Float,
+    val size: Float,
+    val color: Color,
+    val speed: Float,
+    val wobble: Float,
+    val wobbleSpeed: Float,
+    val rotationSpeed: Float,
+    val isCircle: Boolean,
+    val delay: Float,
+)
+
+@Composable
+private fun AtlasXHeroCard(
+    imageDataUrl: String?,
+    modifier: Modifier = Modifier,
+) {
+    val primary = MaterialTheme.colorScheme.primary
+    ElevatedCard(
+        shape = RoundedCornerShape(28.dp),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        ),
+        modifier = modifier,
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            SuggestionChip(
+                onClick = {},
+                label = { Text("Premium") },
+                icon = { Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = primary) },
+                colors = SuggestionChipDefaults.suggestionChipColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    labelColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    iconContentColor = primary,
+                ),
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(718f / 310f)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                contentAlignment = Alignment.Center,
+            ) {
+                imageDataUrl?.let { image ->
+                    AsyncImage(
+                        model = image,
+                        contentDescription = "Atlas X",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Fit,
+                    )
+                } ?: Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    AtlasXLogo(modifier = Modifier.size(48.dp))
+                    Text(
+                        "Atlas X",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+            }
+            Text(
+                "Прокачайте Atlas с подпиской X",
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+            )
+            Text(
+                "Больше лимиты, быстрее ответы и продвинутые инструменты в одном плане.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+        }
+    }
+}
+
+@Composable
+private fun AtlasXLogo(modifier: Modifier = Modifier) {
+    val path = remember {
+        PathParser().parsePathString(
+            "M76.8965 5.56317C76.8965 7.01929 76.3109 8.14446 74.1883 10.9905L47.9113 46.4006L73.6027 81.3473C75.579 83.9286 76.2377 85.3186 76.2377 86.8409C76.2377 90.084 73.5295 92.202 69.4306 92.202C66.7224 92.202 65.2585 91.143 62.3307 87.1718L39.6403 55.2035L38.9816 55.2035L16.1448 87.1718C13.2902 91.143 11.8995 92.202 9.33764 92.202C5.53151 92.202 2.89649 90.0179 2.89649 86.8409C2.89649 85.3848 3.48205 84.2596 5.6047 81.4135L32.3208 45.5402L5.5315 11.0567C3.55524 8.47541 2.89649 7.08548 2.89649 5.56318C2.89649 2.32001 5.60469 0.202025 9.70361 0.202025C12.4118 0.202025 13.8025 1.19483 16.7303 5.23224L40.0795 36.8035L40.7382 36.8035L63.6482 5.23223C66.576 1.19482 67.8935 0.20202 70.4553 0.20202C74.3347 0.202019 76.8965 2.38619 76.8965 5.56317Z",
+        ).toPath(Path())
+    }
+    val primary = MaterialTheme.colorScheme.primary
+    val secondary = MaterialTheme.colorScheme.secondary
+    Canvas(modifier = modifier) {
+        val scale = minOf(size.width / 80f, size.height / 98f)
+        val dx = (size.width - 80f * scale) / 2f
+        val dy = (size.height - 98f * scale) / 2f
+        withTransform({
+            translate(dx, dy)
+            scale(scale, scale)
+        }) {
+            drawPath(
+                path = path,
+                brush = Brush.radialGradient(
+                    colors = listOf(primary, secondary),
+                    center = androidx.compose.ui.geometry.Offset(58f, 72f),
+                    radius = 78f,
+                ),
+            )
+        }
+    }
+}
+
+@Composable
+private fun AtlasXFeatureCard(
+    title: String,
+    description: String,
+    icon: ImageVector,
+) {
+    val primary = MaterialTheme.colorScheme.primary
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        tonalElevation = 1.dp,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        ListItem(
+            headlineContent = {
+                Text(title, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+            },
+            supportingContent = {
+                Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            },
+            leadingContent = {
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.size(40.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = null,
+                            tint = primary,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
+            },
+            colors = ListItemDefaults.colors(
+                containerColor = Color.Transparent,
+            ),
+        )
+    }
+}
+
+private fun highlightedMessageText(
+    text: String,
+    query: String,
+    highlightColor: Color,
+): AnnotatedString {
+    val q = query.trim()
+    if (q.isEmpty()) return AnnotatedString(text)
+    val source = text.lowercase()
+    val target = q.lowercase()
+    return buildAnnotatedString {
+        append(text)
+        var start = 0
+        while (start < source.length) {
+            val index = source.indexOf(target, startIndex = start)
+            if (index == -1) break
+            addStyle(
+                style = SpanStyle(
+                    background = highlightColor,
+                    fontWeight = FontWeight.SemiBold,
+                ),
+                start = index,
+                end = index + target.length,
+            )
+            start = index + target.length
         }
     }
 }
