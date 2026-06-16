@@ -6,19 +6,14 @@ import io.ktor.client.plugins.websocket.*
 import io.ktor.websocket.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import kotlinx.serialization.json.*
 
 sealed class ServerEvent {
     data class AuthOk(val username: String, val isPublic: Boolean) : ServerEvent()
     data class ServerError(val message: String) : ServerEvent()
     data class PublicKeyReceived(val username: String, val publicKey: String) : ServerEvent()
     data class KeyNotFound(val username: String) : ServerEvent()
-    data class MessageReceived(
-        val id: String,
-        val from: String,
-        val to: String,
-        val payload: EncryptedPayload,
-        val timestampMs: Long,
-    ) : ServerEvent()
+    data class MessageReceived(val id: String, val from: String, val to: String, val payload: EncryptedPayload, val timestampMs: Long) : ServerEvent()
     data class MessageHistory(val messages: List<HistoryEntry>) : ServerEvent()
     data class UserJoined(val username: String) : ServerEvent()
     data class UserLeft(val username: String) : ServerEvent()
@@ -48,13 +43,7 @@ sealed class ServerEvent {
 
 data class MiteChatContextMessage(val role: String, val content: String)
 
-data class HistoryEntry(
-    val id: String,
-    val from: String,
-    val to: String,
-    val payload: EncryptedPayload,
-    val timestampMs: Long,
-)
+data class HistoryEntry(val id: String, val from: String, val to: String, val payload: EncryptedPayload, val timestampMs: Long)
 
 enum class ConnectionState { DISCONNECTED, CONNECTING, CONNECTED }
 
@@ -79,12 +68,9 @@ class WebSocketClient(private val httpClient: HttpClient) {
                 _connectionReady.complete(Unit)
                 _connectionState.value = ConnectionState.CONNECTED
                 onConnect()
-
                 try {
                     for (frame in incoming) {
-                        if (frame is Frame.Text) {
-                            handleFrame(frame.readText())
-                        }
+                        if (frame is Frame.Text) handleFrame(frame.readText())
                     }
                 } catch (e: Exception) {
                     throw e
@@ -101,315 +87,189 @@ class WebSocketClient(private val httpClient: HttpClient) {
         }
     }
 
-    suspend fun authRegister(username: String, password: String, publicKeyBase64: String) {
-        sendRaw(buildJsonObject("auth_register") {
-            put("username", username)
-            put("password", password)
-            put("publicKey", publicKeyBase64)
+    suspend fun authRegister(username: String, password: String, publicKeyBase64: String) =
+        send(buildJsonObject {
+            put("type", "auth_register"); put("username", username); put("password", password); put("publicKey", publicKeyBase64)
         })
-    }
 
-    suspend fun authLogin(username: String, password: String, publicKeyBase64: String) {
-        sendRaw(buildJsonObject("auth_login") {
-            put("username", username)
-            put("password", password)
-            put("publicKey", publicKeyBase64)
+    suspend fun authLogin(username: String, password: String, publicKeyBase64: String) =
+        send(buildJsonObject {
+            put("type", "auth_login"); put("username", username); put("password", password); put("publicKey", publicKeyBase64)
         })
-    }
 
-    suspend fun fetchPublicKey(username: String) {
-        sendRaw(buildJsonObject("fetch_key") { put("username", username) })
-    }
+    suspend fun fetchPublicKey(username: String) =
+        send(buildJsonObject { put("type", "fetch_key"); put("username", username) })
 
-    suspend fun searchUsers(query: String) {
-        sendRaw(buildJsonObject("search_users") { put("query", query) })
-    }
+    suspend fun searchUsers(query: String) =
+        send(buildJsonObject { put("type", "search_users"); put("query", query) })
 
-    suspend fun updatePublicStatus(isPublic: Boolean) {
-        sendRaw(buildJsonObject("update_public_status") { put("isPublic", isPublic) })
-    }
+    suspend fun updatePublicStatus(isPublic: Boolean) =
+        send(buildJsonObject { put("type", "update_public_status"); put("isPublic", isPublic) })
 
-    suspend fun fetchPublicUsers() {
-        sendRaw(buildJsonObject("fetch_public_users"))
-    }
+    suspend fun fetchPublicUsers() =
+        send(buildJsonObject { put("type", "fetch_public_users") })
 
-    suspend fun listAllUsers() {
-        sendRaw(buildJsonObject("list_all_users"))
-    }
+    suspend fun listAllUsers() =
+        send(buildJsonObject { put("type", "list_all_users") })
 
-    suspend fun deleteConversation(peer: String) {
-        sendRaw(buildJsonObject("delete_conversation") { put("peer", peer) })
-    }
+    suspend fun deleteConversation(peer: String) =
+        send(buildJsonObject { put("type", "delete_conversation"); put("peer", peer) })
 
-    suspend fun archiveConversation(peer: String, archived: Boolean) {
-        sendRaw(buildJsonObject("archive_conversation") {
-            put("peer", peer)
-            put("archived", archived)
+    suspend fun archiveConversation(peer: String, archived: Boolean) =
+        send(buildJsonObject { put("type", "archive_conversation"); put("peer", peer); put("archived", archived) })
+
+    suspend fun getUnread() =
+        send(buildJsonObject { put("type", "get_unread") })
+
+    suspend fun clearUnread(peer: String) =
+        send(buildJsonObject { put("type", "clear_unread"); put("peer", peer) })
+
+    suspend fun updateAvatar(data: String) =
+        send(buildJsonObject { put("type", "update_avatar"); put("data", data) })
+
+    suspend fun fetchAvatar(username: String) =
+        send(buildJsonObject { put("type", "fetch_avatar"); put("username", username) })
+
+    suspend fun editMessage(id: String, payload: EncryptedPayload, senderPayload: EncryptedPayload) =
+        send(buildJsonObject {
+            put("type", "edit_message"); put("id", id)
+            put("payload", payload.toJson())
+            put("senderPayload", senderPayload.toJson())
         })
-    }
 
-    suspend fun getUnread() {
-        sendRaw(buildJsonObject("get_unread"))
-    }
+    suspend fun deleteMessage(id: String) =
+        send(buildJsonObject { put("type", "delete_message"); put("id", id) })
 
-    suspend fun clearUnread(peer: String) {
-        sendRaw(buildJsonObject("clear_unread") { put("peer", peer) })
-    }
-
-    suspend fun updateAvatar(data: String) {
-        sendRaw(buildJsonObject("update_avatar") { put("data", data) })
-    }
-
-    suspend fun fetchAvatar(username: String) {
-        sendRaw(buildJsonObject("fetch_avatar") { put("username", username) })
-    }
-
-    suspend fun editMessage(id: String, payload: EncryptedPayload, senderPayload: EncryptedPayload) {
-        sendRaw(buildJsonObject("edit_message") {
-            put("id", id)
-            putJsonObject("payload") { putEncryptedPayload(payload) }
-            putJsonObject("senderPayload") { putEncryptedPayload(senderPayload) }
+    suspend fun sendEncryptedMessage(id: String, to: String, payload: EncryptedPayload, senderPayload: EncryptedPayload, timestampMs: Long) =
+        send(buildJsonObject {
+            put("type", "message"); put("id", id); put("to", to); put("timestampMs", timestampMs)
+            put("payload", payload.toJson())
+            put("senderPayload", senderPayload.toJson())
         })
-    }
 
-    suspend fun deleteMessage(id: String) {
-        sendRaw(buildJsonObject("delete_message") { put("id", id) })
-    }
-
-    suspend fun sendEncryptedMessage(id: String, to: String, payload: EncryptedPayload, senderPayload: EncryptedPayload, timestampMs: Long) {
-        sendRaw(buildJsonObject("message") {
-            put("id", id)
-            put("to", to)
-            put("timestampMs", timestampMs)
-            putJsonObject("payload") { putEncryptedPayload(payload) }
-            putJsonObject("senderPayload") { putEncryptedPayload(senderPayload) }
+    suspend fun sendAtlasDialog(id: String, text: String, imageUrl: String?, timestampMs: Long) =
+        send(buildJsonObject {
+            put("type", "atlas_broadcast_dialog"); put("id", id); put("text", text); put("timestampMs", timestampMs); put("imageUrl", imageUrl)
         })
-    }
 
-    suspend fun sendAtlasDialog(id: String, text: String, imageUrl: String?, timestampMs: Long) {
-        sendRaw(buildJsonObject("atlas_broadcast_dialog") {
-            put("id", id)
-            put("text", text)
-            put("timestampMs", timestampMs)
-            put("imageUrl", imageUrl)
+    suspend fun sendAtlasBroadcastMessage(id: String, text: String, timestampMs: Long) =
+        send(buildJsonObject { put("type", "atlas_broadcast_message"); put("id", id); put("text", text); put("timestampMs", timestampMs) })
+
+    suspend fun updateDisplayName(displayName: String) =
+        send(buildJsonObject { put("type", "update_display_name"); put("displayName", displayName) })
+
+    suspend fun sendMiteChatRequest(id: String, prompt: String, history: List<MiteChatContextMessage>) =
+        send(buildJsonObject {
+            put("type", "mite_chat_request"); put("id", id); put("prompt", prompt)
+            put("history", JsonArray(history.map { msg ->
+                buildJsonObject { put("role", msg.role); put("content", msg.content) }
+            }))
         })
-    }
 
-    suspend fun sendAtlasBroadcastMessage(id: String, text: String, timestampMs: Long) {
-        sendRaw(buildJsonObject("atlas_broadcast_message") {
-            put("id", id)
-            put("text", text)
-            put("timestampMs", timestampMs)
-        })
-    }
-
-    suspend fun updateDisplayName(displayName: String) {
-        sendRaw(buildJsonObject("update_display_name") { put("displayName", displayName) })
-    }
-
-    suspend fun sendMiteChatRequest(id: String, prompt: String, history: List<MiteChatContextMessage>) {
-        sendRaw(buildJsonObject("mite_chat_request") {
-            put("id", id)
-            put("prompt", prompt)
-            putJsonArray("history") {
-                history.forEach { message ->
-                    addJsonObject {
-                        put("role", message.role)
-                        put("content", message.content)
-                    }
-                }
-            }
-        })
-    }
-
-    suspend fun fetchServerImage(path: String) {
-        sendRaw(buildJsonObject("fetch_server_image") { put("path", path) })
-    }
+    suspend fun fetchServerImage(path: String) =
+        send(buildJsonObject { put("type", "fetch_server_image"); put("path", path) })
 
     fun disconnect() {
-        session?.let { s ->
-            CoroutineScope(Dispatchers.Default).launch { s.close() }
-        }
+        session?.let { s -> CoroutineScope(Dispatchers.Default).launch { s.close() } }
         _connectionState.value = ConnectionState.DISCONNECTED
     }
 
-    private suspend fun sendRaw(obj: kotlinx.serialization.json.JsonObject) {
+    private suspend fun send(obj: JsonObject) {
         val s = session ?: throw IllegalStateException("WebSocket session is not connected")
         s.send(Frame.Text(obj.toString()))
     }
 
     private suspend fun handleFrame(raw: String) {
         runCatching {
-            val obj = kotlinx.serialization.json.Json.parseToJsonElement(raw).jsonObject
-            val type = obj["type"]?.jsonPrimitive?.content ?: return
+            val obj = Json.parseToJsonElement(raw).jsonObject
+            val type = obj.string("type") ?: return
 
             val event: ServerEvent = when (type) {
-                "auth_ok" -> ServerEvent.AuthOk(
-                    username = obj.getString("username"),
-                    isPublic = obj.getBoolean("isPublic"),
-                )
-                "error" -> ServerEvent.ServerError(
-                    message = obj.getString("message"),
-                )
-                "public_key" -> ServerEvent.PublicKeyReceived(
-                    username = obj.getString("username"),
-                    publicKey = obj.getString("publicKey"),
-                )
-                "key_not_found" -> ServerEvent.KeyNotFound(
-                    username = obj.getString("username"),
-                )
+                "auth_ok" -> ServerEvent.AuthOk(obj.string("username")!!, obj.boolean("isPublic"))
+                "error" -> ServerEvent.ServerError(obj.string("message")!!)
+                "public_key" -> ServerEvent.PublicKeyReceived(obj.string("username")!!, obj.string("publicKey")!!)
+                "key_not_found" -> ServerEvent.KeyNotFound(obj.string("username")!!)
                 "message" -> {
-                    val p = obj.getObject("payload")
+                    val p = obj.obj("payload")
                     ServerEvent.MessageReceived(
-                        id = obj.getString("id"),
-                        from = obj.getString("from"),
-                        to = obj.getString("to"),
-                        payload = parseEncryptedPayload(p),
-                        timestampMs = obj.getLong("timestampMs"),
+                        obj.string("id")!!, obj.string("from")!!, obj.string("to")!!,
+                        p.toEncryptedPayload(), obj.long("timestampMs"),
                     )
                 }
                 "message_history" -> {
-                    val entries = obj.getArray("messages").map { el ->
+                    val entries = obj.array("messages")?.map { el ->
                         val m = el.jsonObject
-                        val p = m.getObject("payload")
-                        HistoryEntry(
-                            id = m.getString("id"),
-                            from = m.getString("from"),
-                            to = m.getString("to"),
-                            payload = parseEncryptedPayload(p),
-                            timestampMs = m.getLong("timestampMs"),
-                        )
-                    }
+                        HistoryEntry(m.string("id")!!, m.string("from")!!, m.string("to")!!, m.obj("payload").toEncryptedPayload(), m.long("timestampMs"))
+                    }.orEmpty()
                     ServerEvent.MessageHistory(entries)
                 }
-                "user_joined" -> ServerEvent.UserJoined(obj.getString("username"))
-                "user_left" -> ServerEvent.UserLeft(obj.getString("username"))
-                "user_list" -> ServerEvent.UserList(obj.getStringArray("users"))
-                "search_results" -> ServerEvent.SearchResults(obj.getStringArray("users"))
+                "user_joined" -> ServerEvent.UserJoined(obj.string("username")!!)
+                "user_left" -> ServerEvent.UserLeft(obj.string("username")!!)
+                "user_list" -> ServerEvent.UserList(obj.stringList("users"))
+                "search_results" -> ServerEvent.SearchResults(obj.stringList("users"))
                 "public_users" -> {
-                    val users = obj.getArray("users").map { el ->
+                    val users = obj.array("users")?.map { el ->
                         val u = el.jsonObject
-                        atlas.messenger.data.PublicUserInfo(
-                            username = u.getString("username"),
-                            isOnline = u.getBoolean("isOnline"),
-                        )
-                    }
+                        atlas.messenger.data.PublicUserInfo(u.string("username")!!, u.boolean("isOnline"))
+                    }.orEmpty()
                     ServerEvent.PublicUsersReceived(users)
                 }
-                "conversation_deleted" -> ServerEvent.ConversationDeleted(obj.getString("peer"))
+                "conversation_deleted" -> ServerEvent.ConversationDeleted(obj.string("peer")!!)
                 "unread_counts" -> {
-                    val counts = obj.getObject("counts").entries.associate { (k, v) ->
-                        k to v.jsonPrimitive.content.toInt()
-                    }
+                    val counts = obj.obj("counts")?.entries?.associate { (k, v) ->
+                        k to (v.jsonPrimitive.content.toIntOrNull() ?: 0)
+                    }.orEmpty()
                     ServerEvent.UnreadCounts(counts)
                 }
-                "unread_cleared" -> ServerEvent.UnreadCleared(obj.getString("peer"))
-                "avatar_response" -> ServerEvent.AvatarResponse(
-                    username = obj.getString("username"),
-                    data = obj["data"]?.jsonPrimitive?.contentOrNull,
-                )
+                "unread_cleared" -> ServerEvent.UnreadCleared(obj.string("peer")!!)
+                "avatar_response" -> ServerEvent.AvatarResponse(obj.string("username")!!, obj.string("data"))
                 "message_edited" -> {
-                    val p = obj.getObject("payload")
-                    ServerEvent.MessageEdited(
-                        id = obj.getString("id"),
-                        from = obj.getString("from"),
-                        to = obj.getString("to"),
-                        payload = parseEncryptedPayload(p),
-                    )
+                    val p = obj.obj("payload")
+                    ServerEvent.MessageEdited(obj.string("id")!!, obj.string("from")!!, obj.string("to")!!, p.toEncryptedPayload())
                 }
-                "message_deleted" -> ServerEvent.MessageDeleted(obj.getString("id"))
+                "message_deleted" -> ServerEvent.MessageDeleted(obj.string("id")!!)
                 "atlas_dialog" -> ServerEvent.AtlasDialogReceived(
-                    id = obj.getString("id"),
-                    text = obj.getString("text"),
-                    imageUrl = obj["imageUrl"]?.jsonPrimitive?.contentOrNull,
-                    timestampMs = obj.getLong("timestampMs"),
+                    obj.string("id")!!, obj.string("text")!!, obj.string("imageUrl"), obj.long("timestampMs"),
                 )
                 "atlas_message" -> ServerEvent.AtlasMessageReceived(
-                    id = obj.getString("id"),
-                    from = obj.getString("from"),
-                    text = obj.getString("text"),
-                    timestampMs = obj.getLong("timestampMs"),
+                    obj.string("id")!!, obj.string("from")!!, obj.string("text")!!, obj.long("timestampMs"),
                 )
                 "display_names" -> {
-                    val values = obj.getObject("values").entries.associate { (username, value) ->
-                        username to value.jsonPrimitive.content
-                    }
+                    val values = obj.obj("values")?.entries?.associate { (k, v) ->
+                        k to v.jsonPrimitive.content
+                    }.orEmpty()
                     ServerEvent.DisplayNamesReceived(values)
                 }
-                "display_name_updated" -> ServerEvent.DisplayNameUpdated(
-                    username = obj.getString("username"),
-                    displayName = obj.getString("displayName"),
-                )
-                "all_users" -> ServerEvent.AllUsersReceived(obj.getStringArray("users"))
-                "archived_conversations" -> ServerEvent.ArchivedConversationsReceived(
-                    obj.getStringArray("peers").toSet(),
-                )
-                "conversation_archive_updated" -> ServerEvent.ConversationArchiveUpdated(
-                    peer = obj.getString("peer"),
-                    archived = obj.getBoolean("archived"),
-                )
-                "mite_chat_delta" -> ServerEvent.MiteChatDelta(
-                    id = obj.getString("id"),
-                    delta = obj.getString("delta"),
-                )
-                "mite_chat_reasoning_delta" -> ServerEvent.MiteChatReasoningDelta(
-                    id = obj.getString("id"),
-                    delta = obj.getString("delta"),
-                )
-                "mite_chat_done" -> ServerEvent.MiteChatDone(obj.getString("id"))
-                "mite_chat_error" -> ServerEvent.MiteChatError(
-                    id = obj.getString("id"),
-                    message = obj.getString("message"),
-                )
-                "atlas_x_image" -> ServerEvent.AtlasXImageReceived(
-                    data = obj["data"]?.jsonPrimitive?.contentOrNull,
-                    message = obj["message"]?.jsonPrimitive?.contentOrNull,
-                )
+                "display_name_updated" -> ServerEvent.DisplayNameUpdated(obj.string("username")!!, obj.string("displayName")!!)
+                "all_users" -> ServerEvent.AllUsersReceived(obj.stringList("users"))
+                "archived_conversations" -> ServerEvent.ArchivedConversationsReceived(obj.stringList("peers").toSet())
+                "conversation_archive_updated" -> ServerEvent.ConversationArchiveUpdated(obj.string("peer")!!, obj.boolean("archived"))
+                "mite_chat_delta" -> ServerEvent.MiteChatDelta(obj.string("id")!!, obj.string("delta")!!)
+                "mite_chat_reasoning_delta" -> ServerEvent.MiteChatReasoningDelta(obj.string("id")!!, obj.string("delta")!!)
+                "mite_chat_done" -> ServerEvent.MiteChatDone(obj.string("id")!!)
+                "mite_chat_error" -> ServerEvent.MiteChatError(obj.string("id")!!, obj.string("message")!!)
+                "atlas_x_image" -> ServerEvent.AtlasXImageReceived(obj.string("data"), obj.string("message"))
                 else -> return
             }
-
             _events.emit(event)
         }
     }
 }
 
-private fun kotlinx.serialization.json.JsonObject.getString(key: String): String =
-    this[key]?.jsonPrimitive?.content ?: ""
+private fun JsonObject.string(key: String): String? = this[key]?.jsonPrimitive?.contentOrNull
+private fun JsonObject.boolean(key: String): Boolean = this[key]?.jsonPrimitive?.booleanOrNull ?: false
+private fun JsonObject.long(key: String): Long = this[key]?.jsonPrimitive?.longOrNull ?: 0L
+private fun JsonObject.obj(key: String): JsonObject = this[key]?.jsonObject ?: buildJsonObject {}
+private fun JsonObject.array(key: String): JsonArray? = this[key]?.jsonArray
+private fun JsonObject.stringList(key: String): List<String> = array(key)?.map { it.jsonPrimitive.content }.orEmpty()
 
-private fun kotlinx.serialization.json.JsonObject.getBoolean(key: String): Boolean =
-    this[key]?.jsonPrimitive?.boolean ?: false
+private fun JsonObject.toEncryptedPayload(): EncryptedPayload = EncryptedPayload(
+    encryptedKey = string("encryptedKey").orEmpty(),
+    iv = string("iv").orEmpty(),
+    ciphertext = string("ciphertext").orEmpty(),
+    tag = string("tag").orEmpty(),
+)
 
-private fun kotlinx.serialization.json.JsonObject.getLong(key: String): Long =
-    this[key]?.jsonPrimitive?.long ?: 0L
-
-private fun kotlinx.serialization.json.JsonObject.getObject(key: String): kotlinx.serialization.json.JsonObject =
-    this[key]?.jsonObject ?: kotlinx.serialization.json.buildJsonObject {}
-
-private fun kotlinx.serialization.json.JsonObject.getArray(key: String): List<kotlinx.serialization.json.JsonElement> =
-    this[key]?.jsonArray ?: emptyList()
-
-private fun kotlinx.serialization.json.JsonObject.getStringArray(key: String): List<String> =
-    getArray(key).map { it.jsonPrimitive.content }
-
-private fun parseEncryptedPayload(obj: kotlinx.serialization.json.JsonObject): EncryptedPayload =
-    EncryptedPayload(
-        encryptedKey = obj.getString("encryptedKey"),
-        iv = obj.getString("iv"),
-        ciphertext = obj.getString("ciphertext"),
-        tag = obj.getString("tag"),
-    )
-
-private fun kotlinx.serialization.json.JsonObjectBuilder.putEncryptedPayload(payload: EncryptedPayload) {
-    put("encryptedKey", payload.encryptedKey)
-    put("iv", payload.iv)
-    put("ciphertext", payload.ciphertext)
-    put("tag", payload.tag)
-}
-
-private fun buildJsonObject(
-    type: String,
-    builder: kotlinx.serialization.json.JsonObjectBuilder.() -> Unit = {},
-): kotlinx.serialization.json.JsonObject = kotlinx.serialization.json.buildJsonObject {
-    put("type", type)
-    builder()
+private fun EncryptedPayload.toJson(): JsonObject = buildJsonObject {
+    put("encryptedKey", encryptedKey); put("iv", iv); put("ciphertext", ciphertext); put("tag", tag)
 }

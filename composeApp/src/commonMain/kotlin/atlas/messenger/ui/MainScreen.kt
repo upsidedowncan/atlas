@@ -31,6 +31,7 @@ import com.composables.icons.materialsymbols.roundedfilled.Arrow_back
 import com.composables.icons.materialsymbols.roundedfilled.Chat
 import com.composables.icons.materialsymbols.roundedfilled.Chat_bubble
 import com.composables.icons.materialsymbols.roundedfilled.Close
+import com.composables.icons.materialsymbols.roundedfilled.Delete
 import com.composables.icons.materialsymbols.roundedfilled.Search
 import com.composables.icons.materialsymbols.roundedfilled.Settings
 import com.composables.icons.materialsymbols.roundedfilled.Star
@@ -236,6 +237,7 @@ private fun MobileMainScreen(viewModel: ChatViewModel) {
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun MobileConversationListTab(viewModel: ChatViewModel) {
+    val state by viewModel.state.collectAsState()
     var fabExpanded by remember { mutableStateOf(false) }
     var showSearchDialog by remember { mutableStateOf(false) }
 
@@ -848,21 +850,6 @@ private fun ConversationItem(
                     DropdownMenuItem(text = { Text("Удалить чат") }, shape = MenuDefaults.trailingItemShape, leadingIcon = { Icon(MaterialSymbols.RoundedFilled.Delete, modifier = Modifier.size(MenuDefaults.LeadingIconSize), contentDescription = null) }, onClick = { showContextMenu = false; showDeleteDialog = true }, colors = MenuDefaults.itemColors(textColor = MaterialTheme.colorScheme.error, leadingIconColor = MaterialTheme.colorScheme.error))
                 }
             }
-        }
-    }
-}
-
-@Composable
-fun UserItem(displayName: String, avatarUrl: String?, username: String, isOnline: Boolean, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 7.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        AvatarBox(username, avatarUrl, 44)
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-            Text(displayName, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1)
-            Text(if (isOnline) "В сети" else "Не в сети", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
         }
     }
 }

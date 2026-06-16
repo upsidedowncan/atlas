@@ -83,6 +83,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import atlas.messenger.viewmodel.ChatUiState
@@ -201,13 +202,13 @@ private fun AuthStepContent(
     AnimatedContent(
         targetState = currentStep,
         transitionSpec = {
-            val springSpec = spring<Float>(stiffness = Spring.StiffnessMediumLow)
+            val springSpec = spring<IntOffset>(stiffness = Spring.StiffnessMediumLow)
             if (targetState.ordinal > initialState.ordinal) {
-                (slideInHorizontally(springSpec) { it / 3 } + fadeIn(springSpec))
-                    .togetherWith(slideOutHorizontally(springSpec) { -it / 3 } + fadeOut(springSpec))
+                (slideInHorizontally(springSpec) { it / 3 } + fadeIn(tween(300)))
+                    .togetherWith(slideOutHorizontally(springSpec) { -it / 3 } + fadeOut(tween(300)))
             } else {
-                (slideInHorizontally(springSpec) { -it / 3 } + fadeIn(springSpec))
-                    .togetherWith(slideOutHorizontally(springSpec) { it / 3 } + fadeOut(springSpec))
+                (slideInHorizontally(springSpec) { -it / 3 } + fadeIn(tween(300)))
+                    .togetherWith(slideOutHorizontally(springSpec) { it / 3 } + fadeOut(tween(300)))
             }
         },
         modifier = modifier,

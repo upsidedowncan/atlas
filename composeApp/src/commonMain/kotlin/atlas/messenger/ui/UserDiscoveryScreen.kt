@@ -18,6 +18,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import atlas.messenger.viewmodel.ChatViewModel
+import atlas.messenger.ui.components.AtlasAppBarColor
+import atlas.messenger.ui.components.ChatTile
+import atlas.messenger.ui.components.displayNameFor
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -79,7 +82,7 @@ fun UserDiscoveryScreen(viewModel: ChatViewModel) {
                             }
                             items(state.conversations) { username ->
                                 UserItem(
-                                    displayName = displayNameFor(state, username),
+                                    displayName = displayNameFor(state.displayNames, username),
                                     avatarUrl = state.avatars[username],
                                     username = username,
                                     isOnline = username in state.onlineUsers,
@@ -98,7 +101,7 @@ fun UserDiscoveryScreen(viewModel: ChatViewModel) {
                             }
                             items(state.publicUsers) { publicUser ->
                                 UserItem(
-                                    displayName = displayNameFor(state, publicUser.username),
+                                    displayName = displayNameFor(state.displayNames, publicUser.username),
                                     avatarUrl = state.avatars[publicUser.username],
                                     username = publicUser.username,
                                     isOnline = publicUser.isOnline,
@@ -130,7 +133,7 @@ fun UserDiscoveryScreen(viewModel: ChatViewModel) {
                         if (state.searchResults.isNotEmpty()) {
                             items(state.searchResults) { username ->
                                 UserItem(
-                                    displayName = displayNameFor(state, username),
+                                    displayName = displayNameFor(state.displayNames, username),
                                     avatarUrl = state.avatars[username],
                                     username = username,
                                     isOnline = username in state.onlineUsers,
@@ -169,7 +172,7 @@ fun UserDiscoveryScreen(viewModel: ChatViewModel) {
                                 Icon(MaterialSymbols.RoundedFilled.Arrow_back, contentDescription = "Назад")
                             }
                         },
-                        colors = TopAppBarDefaults.topAppBarColors(containerColor = atlasAppBarColor()),
+                        colors = TopAppBarDefaults.topAppBarColors(containerColor = AtlasAppBarColor()),
                     )
                 },
                 containerColor = colors.surface,

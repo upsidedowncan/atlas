@@ -70,19 +70,21 @@ fun App() {
 
 @Composable
 private fun ToastOverlay(message: String?, onDismiss: () -> Unit) {
-    AnimatedVisibility(
-        visible = message != null,
-        enter = slideInVertically { it } + fadeIn(),
-        exit = slideOutVertically { it } + fadeOut(),
-        modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(16.dp).align(Alignment.BottomCenter),
-    ) {
-        message?.let { text ->
-            Snackbar(
-                shape = RoundedCornerShape(16.dp),
-                containerColor = MaterialTheme.colorScheme.inverseSurface,
-                contentColor = MaterialTheme.colorScheme.inverseOnSurface,
-            ) {
-                Text(text, style = MaterialTheme.typography.bodyMedium)
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+        AnimatedVisibility(
+            visible = message != null,
+            enter = slideInVertically { it } + fadeIn(),
+            exit = slideOutVertically { it } + fadeOut(),
+        ) {
+            message?.let { text ->
+                Snackbar(
+                    shape = RoundedCornerShape(16.dp),
+                    containerColor = MaterialTheme.colorScheme.inverseSurface,
+                    contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+                    modifier = Modifier.fillMaxWidth().padding(16.dp).navigationBarsPadding(),
+                ) {
+                    Text(text, style = MaterialTheme.typography.bodyMedium)
+                }
             }
         }
     }
