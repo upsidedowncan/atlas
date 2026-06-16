@@ -936,7 +936,7 @@ class ChatViewModel : ViewModel() {
                 }
             }.onFailure { e ->
                 _state.update {
-                    it.copy(isConnecting = false, toastMessage = "Reconnect failed: ${e.message}")
+                    it.copy(isConnecting = false, toastMessage = "Ошибка переподключения: ${e.message}")
                 }
             }
         }
@@ -1465,7 +1465,7 @@ class ChatViewModel : ViewModel() {
                 _state.update {
                     it.copy(
                         isConnecting = false,
-                        toastMessage = "Connection lost. Reconnecting...",
+                        toastMessage = "Соединение потеряно. Переподключение...",
                     )
                 }
                 if (wasOnChatScreen) {

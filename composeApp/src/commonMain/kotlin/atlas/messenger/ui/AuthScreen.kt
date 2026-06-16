@@ -73,7 +73,7 @@ fun AuthScreen(viewModel: ChatViewModel) {
                 .shadow(8.dp, CircleShape)
                 .background(colors.surfaceContainerHigh, CircleShape),
         ) {
-            Icon(MaterialSymbols.RoundedFilled.Settings, contentDescription = "Settings", tint = colors.onSurface)
+            Icon(MaterialSymbols.RoundedFilled.Settings, contentDescription = "Настройки", tint = colors.onSurface)
         }
 
         Column(
@@ -97,18 +97,18 @@ fun AuthScreen(viewModel: ChatViewModel) {
                     selected = !state.isRegistering,
                     onClick = { viewModel.setAuthMode(false) },
                     shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-                ) { Text("Login") }
+                ) { Text("Вход") }
                 SegmentedButton(
                     selected = state.isRegistering,
                     onClick = { viewModel.setAuthMode(true) },
                     shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-                ) { Text("Register") }
+                ) { Text("Регистрация") }
             }
 
             OutlinedTextField(
                 value = state.username,
                 onValueChange = viewModel::onUsernameChanged,
-                label = { Text("Username") },
+                label = { Text("Имя пользователя") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                 modifier = Modifier.fillMaxWidth(),
@@ -118,7 +118,7 @@ fun AuthScreen(viewModel: ChatViewModel) {
             OutlinedTextField(
                 value = state.passwordInput,
                 onValueChange = viewModel::onPasswordChanged,
-                label = { Text("Password") },
+                label = { Text("Пароль") },
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
@@ -143,7 +143,7 @@ fun AuthScreen(viewModel: ChatViewModel) {
                     LoadingIndicator(modifier = Modifier.size(24.dp), color = colors.onPrimary)
                 } else {
                     Text(
-                        if (state.isRegistering) "Create Account" else "Login",
+                        if (state.isRegistering) "Создать аккаунт" else "Войти",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                     )
@@ -171,14 +171,14 @@ private fun ServerUrlDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Server Address") },
+        title = { Text("Адрес сервера") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Enter the server address to connect to", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Введите адрес сервера для подключения", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 TextField(
                     value = urlText,
                     onValueChange = { urlText = it },
-                    label = { Text("ws://host:port") },
+                    label = { Text("ws://адрес:порт") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
@@ -189,7 +189,7 @@ private fun ServerUrlDialog(
                 )
             }
         },
-        confirmButton = { TextButton(onClick = { onUrlChanged(urlText.trim()); onDismiss() }) { Text("Save") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        confirmButton = { TextButton(onClick = { onUrlChanged(urlText.trim()); onDismiss() }) { Text("Сохранить") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
     )
 }

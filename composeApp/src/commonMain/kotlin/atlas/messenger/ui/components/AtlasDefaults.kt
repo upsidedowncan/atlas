@@ -25,7 +25,7 @@ fun AtlasAppBarColor() = MaterialTheme.colorScheme.surfaceContainerLow
 
 fun displayNameFor(displayNames: Map<String, String>, username: String): String {
     return when (username) {
-        "__everyone__" -> "All"
+        "__everyone__" -> "Все"
         else -> displayNames[username] ?: username
     }
 }

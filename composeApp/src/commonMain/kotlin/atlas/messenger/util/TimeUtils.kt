@@ -12,10 +12,10 @@ fun formatRelativeTime(millis: Long): String {
     val now = currentTimeMs()
     val diff = now - millis
     return when {
-        diff < 60_000 -> "now"
-        diff < 3_600_000 -> "${diff / 60_000}m ago"
-        diff < 86_400_000 -> "${diff / 3_600_000}h ago"
-        diff < 604_800_000 -> "${diff / 86_400_000}d ago"
+        diff < 60_000 -> "только что"
+        diff < 3_600_000 -> "${diff / 60_000}м назад"
+        diff < 86_400_000 -> "${diff / 3_600_000}ч назад"
+        diff < 604_800_000 -> "${diff / 86_400_000}д назад"
         else -> formatTimestamp(millis)
     }
 }
