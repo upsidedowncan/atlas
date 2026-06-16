@@ -25,6 +25,8 @@ jobs:
     name: Device framework
     runs-on: macos-14
     timeout-minutes: 60
+    env:
+      ORG_GRADLE_PROJECT_configurationCache: false
     steps:
       - uses: actions/checkout@v4
         with:
@@ -71,6 +73,8 @@ jobs:
     name: Simulator framework
     runs-on: macos-14
     timeout-minutes: 60
+    env:
+      ORG_GRADLE_PROJECT_configurationCache: false
     steps:
       - uses: actions/checkout@v4
         with:

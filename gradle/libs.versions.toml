@@ -62,7 +62,7 @@ emoji-kt-core = { module = "org.kodein.emoji:emoji-kt", version.ref = "emojiKt" 
 kmp-emoji-picker = { module = "me.digitalby:kmp-emoji-picker", version.ref = "kmpEmojiPicker" }
 image-picker-kmp = { module = "io.github.ismoy:imagepickerkmp", version.ref = "imagePickerKmp" }
 whyoleg-cryptography-core = { module = "dev.whyoleg.cryptography:cryptography-core", version.ref = "whyolegCryptography" }
-whyoleg-cryptography-ios = { module = "dev.whyoleg.cryptography:cryptography-ios", version.ref = "whyolegCryptography" }
+whyoleg-cryptography-apple = { module = "dev.whyoleg.cryptography:cryptography-provider-apple", version.ref = "whyolegCryptography" }
 whyoleg-cryptography-jdk = { module = "dev.whyoleg.cryptography:cryptography-provider-jdk", version.ref = "whyolegCryptography" }
 
 [plugins]
