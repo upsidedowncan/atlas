@@ -915,6 +915,33 @@ class ChatViewModel : ViewModel() {
         }
     }
 
+    private fun reconnect() {
+        val username = state.value.username.trim()
+        val password = state.value.passwordInput
+        if (username.isBlank() || password.isBlank()) return
+
+        val serverUrl = state.value.serverUrl
+        val (host, port) = parseServerUrl(serverUrl)
+
+        connectionJob?.cancel()
+
+        _state.update { it.copy(isConnecting = true) }
+
+        connectionJob = viewModelScope.launch(Dispatchers.Default) {
+            launch { wsClient.events.collect { event -> handleServerEvent(event) } }
+
+            runCatching {
+                wsClient.connect(host, port) {
+                    wsClient.authLogin(username, password, encryption.publicKeyBase64)
+                }
+            }.onFailure { e ->
+                _state.update {
+                    it.copy(isConnecting = false, toastMessage = "Reconnect failed: ${e.message}")
+                }
+            }
+        }
+    }
+
     private fun parseServerUrl(url: String): Pair<String, Int> {
         return try {
             val cleanUrl = url.trim()
@@ -1434,8 +1461,18 @@ class ChatViewModel : ViewModel() {
             }
 
             ServerEvent.Disconnected -> {
+                val wasOnChatScreen = state.value.screen == Screen.CHAT
                 _state.update {
-                    it.copy(screen = Screen.AUTH, errorMessage = "Соединение прервано.", isConnecting = false)
+                    it.copy(
+                        isConnecting = false,
+                        toastMessage = "Connection lost. Reconnecting...",
+                    )
+                }
+                if (wasOnChatScreen) {
+                    viewModelScope.launch {
+                        delay(2000)
+                        runCatching { reconnect() }
+                    }
                 }
             }
         }

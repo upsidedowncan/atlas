@@ -70,7 +70,6 @@ import atlas.messenger.ui.mite.MiteChatPane
 import atlas.messenger.ui.atlas.AtlasBroadcastPane
 import atlas.messenger.ui.settings.SettingsPane
 import atlas.messenger.ui.UserDiscoveryScreen
-import atlas.messenger.network.ConnectionState
 import atlas.messenger.util.formatTime
 
 private val MOBILE_BREAKPOINT = 600.dp
@@ -271,22 +270,7 @@ private fun MobileConversationListTab(viewModel: ChatViewModel) {
         contentWindowInsets = WindowInsets(0.dp),
         topBar = {
             TopAppBar(
-                title = {
-                    Column {
-                        Text("Atlas")
-                        val connLabel = when (state.connectionState) {
-                            ConnectionState.CONNECTED -> "Online"
-                            ConnectionState.CONNECTING -> "Connecting..."
-                            ConnectionState.DISCONNECTED -> "Offline"
-                        }
-                        val connColor = when (state.connectionState) {
-                            ConnectionState.CONNECTED -> Color(0xFF4CAF50)
-                            ConnectionState.CONNECTING -> MaterialTheme.colorScheme.onSurfaceVariant
-                            ConnectionState.DISCONNECTED -> MaterialTheme.colorScheme.error
-                        }
-                        Text(connLabel, style = MaterialTheme.typography.labelSmall, color = connColor)
-                    }
-                },
+                title = { Text("Atlas") },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = AtlasAppBarColor()),
             )
         },
