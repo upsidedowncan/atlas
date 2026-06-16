@@ -67,6 +67,7 @@ kotlin {
             implementation(libs.coil.network.ktor)
             implementation(libs.kmp.emoji.picker)
             implementation(libs.image.picker.kmp)
+            implementation(libs.whyoleg.cryptography.core)
             api("io.github.kdroidfilter:composewebview:1.0.0-beta-01")
         }
         commonTest.dependencies {
@@ -76,16 +77,19 @@ kotlin {
             implementation(compose.desktop.currentOs)
             implementation(libs.kotlinx.coroutinesSwing)
             implementation(libs.ktor.client.java)
+            implementation(libs.whyoleg.cryptography.jdk)
         }
 
         androidMain.dependencies {
             implementation(libs.compose.uiToolingPreview)
             implementation(libs.androidx.activity.compose)
             implementation(libs.ktor.client.okhttp)
+            implementation(libs.whyoleg.cryptography.jdk)
         }
 
         iosMain.dependencies {
             implementation(libs.ktor.client.darwin)
+            implementation(libs.whyoleg.cryptography.ios)
         }
 
         jsMain.dependencies {

@@ -3,63 +3,70 @@
 package atlas.messenger.crypto
 
 import atlas.messenger.data.EncryptedPayload
+import dev.whyoleg.cryptography.*
+import dev.whyoleg.cryptography.algorithms.*
+import dev.whyoleg.cryptography.algorithms.AES
+import dev.whyoleg.cryptography.algorithms.RSA
+import dev.whyoleg.cryptography.BinarySize.Companion.bits
 import kotlinx.cinterop.*
 import platform.CoreFoundation.*
 import platform.Foundation.*
 import platform.Security.*
 
+private val provider = CryptographyProvider.Default
+
 private class IosEncryptionService : EncryptionService {
 
-    private val privateKey: SecKeyRef
-    private val publicKey: SecKeyRef
+    private val rsaOaep = provider.get(RSA.OAEP)
+    private val aesGcm = provider.get(AES.GCM)
+
+    private val keyPair: RSA.OAEP.KeyPair by lazy { loadOrGenerateKeyPair() }
+    private val publicKey: RSA.OAEP.PublicKey get() = keyPair.publicKey
+    private val privateKey: RSA.OAEP.PrivateKey get() = keyPair.privateKey
 
     init {
-        memScoped {
-            val attributes = CFDictionaryCreateMutable(null, 3, null, null)!!
-            CFDictionaryAddValue(attributes, kSecAttrKeyType, kSecAttrKeyTypeRSA)
-            CFDictionaryAddValue(attributes, kSecAttrKeySizeInBits, CFNumberCreate(null, kCFNumberIntType, cValuesOf(2048)))
-            CFDictionaryAddValue(attributes, kSecAttrCanSign, kCFBooleanFalse)
+        // Trigger key loading or generation on construction so failures are visible.
+        keyPair
+    }
 
-            val privKey = SecKeyCreateRandomKey(attributes, null)
-                ?: throw IllegalStateException("Ошибка генерации RSA ключа")
-            CFRelease(attributes)
-
-            privateKey = privKey
-            publicKey = SecKeyCopyPublicKey(privKey)
-                ?: throw IllegalStateException("Ошибка извлечения публичного ключа")
+    private fun loadOrGenerateKeyPair(): RSA.OAEP.KeyPair {
+        val rsa = provider.get(RSA.OAEP)
+        val existing = readKeychain("atlas.rsa.private.der")
+        if (existing != null) {
+            val priv = rsa.privateKeyDecoder(SHA256).decodeFromByteArray(RSA.PrivateKey.Format.DER, existing)
+            return object : RSA.OAEP.KeyPair {
+                override val publicKey: RSA.OAEP.PublicKey = priv.publicKey
+                override val privateKey: RSA.OAEP.PrivateKey = priv
+            }
         }
+        val newPair = rsa.keyPairGenerator(2048.bits).generateKey()
+        writeKeychain("atlas.rsa.private.der", newPair.privateKey.encodeToByteArray(RSA.PrivateKey.Format.DER))
+        return newPair
     }
 
     override val publicKeyBase64: String
-        get() {
-            val keyData = SecKeyCopyExternalRepresentation(publicKey, null)
-                ?: throw IllegalStateException("Ошибка экспорта публичного ключа")
-            val data = keyData as NSData
-            return data.base64EncodedStringWithOptions(0u)
-        }
+        get() = publicKey.encodeToByteArray(RSA.PublicKey.Format.DER).encodeBase64()
 
     override fun encrypt(plaintext: String, recipientPublicKeyBase64: String): EncryptedPayload {
-        val recipientKey = importRsaPublicKey(recipientPublicKeyBase64)
+        val recipientPublicKey = provider.get(RSA.OAEP)
+            .publicKeyDecoder(SHA256)
+            .decodeFromByteArray(RSA.PublicKey.Format.DER, recipientPublicKeyBase64.decodeBase64())
 
-        val aesKeyBytes = ByteArray(32).also { platform.posix.arc4random_buf(it.refTo(0), 32u) }
-        val iv = ByteArray(12).also { platform.posix.arc4random_buf(it.refTo(0), 12u) }
+        val aesKey = aesGcm.keyGenerator().generateKey()
+        val aesKeyBytes = aesKey.encodeToByteArray(AES.Key.Format.RAW)
+        val encryptedKey = recipientPublicKey.encryptor().encrypt(aesKeyBytes)
 
-        val rsaAlgorithm = kSecKeyAlgorithmRSAEncryptionOAEPSHA256
-        val aesKeyData = aesKeyBytes.toNSData()
-        val encryptedKeyData = SecKeyCreateEncryptedData(recipientKey, rsaAlgorithm, aesKeyData as CFDataRef, null)
-            ?: throw IllegalStateException("Ошибка RSA-шифрования ключа")
-
-        val plaintextBytes = plaintext.encodeToByteArray()
-        val ciphertextBytes = aesGcmEncrypt(plaintextBytes, aesKeyBytes, iv)
-
-        val ciphertext = ciphertextBytes.copyOf(ciphertextBytes.size - 16)
-        val tag = ciphertextBytes.copyOfRange(ciphertextBytes.size - 16, ciphertextBytes.size)
-
+        val iv = ByteArray(12).also { randomBytes(it) }
+        val ciphertextWithTag = aesKey.cipher().encryptWithIv(
+            iv = iv,
+            plaintext = plaintext.encodeToByteArray(),
+        )
+        val (ciphertext, tag) = splitCiphertextAndTag(ciphertextWithTag)
         return EncryptedPayload(
-            encryptedKey = (encryptedKeyData as NSData).base64EncodedStringWithOptions(0u),
-            iv = iv.toNSData().base64EncodedStringWithOptions(0u),
-            ciphertext = ciphertext.toNSData().base64EncodedStringWithOptions(0u),
-            tag = tag.toNSData().base64EncodedStringWithOptions(0u),
+            encryptedKey = encryptedKey.encodeBase64(),
+            iv = iv.encodeBase64(),
+            ciphertext = ciphertext.encodeBase64(),
+            tag = tag.encodeBase64(),
         )
     }
 
@@ -67,66 +74,90 @@ private class IosEncryptionService : EncryptionService {
         encrypt(plaintext, publicKeyBase64)
 
     override fun decrypt(payload: EncryptedPayload): String {
-        val encryptedKeyData = NSData.create(base64EncodedString = payload.encryptedKey, options = 0u)
-            ?: throw IllegalArgumentException("Некорректный encryptedKey")
-        val iv = NSData.create(base64EncodedString = payload.iv, options = 0u)?.toByteArray()
-            ?: throw IllegalArgumentException("Некорректный IV")
-        val ciphertext = NSData.create(base64EncodedString = payload.ciphertext, options = 0u)?.toByteArray()
-            ?: throw IllegalArgumentException("Некорректный ciphertext")
-        val tag = NSData.create(base64EncodedString = payload.tag, options = 0u)?.toByteArray()
-            ?: throw IllegalArgumentException("Некорректный tag")
+        val encryptedKeyBytes = payload.encryptedKey.decodeBase64()
+        val iv = payload.iv.decodeBase64()
+        val ciphertext = payload.ciphertext.decodeBase64()
+        val tag = payload.tag.decodeBase64()
 
-        val aesKeyData = SecKeyCreateDecryptedData(
-            privateKey,
-            kSecKeyAlgorithmRSAEncryptionOAEPSHA256,
-            encryptedKeyData as CFDataRef,
-            null,
-        ) ?: throw IllegalStateException("Ошибка RSA-дешифрования ключа")
+        val aesKeyBytes = privateKey.decryptor().decrypt(encryptedKeyBytes)
+        val aesKey = provider.get(AES.GCM)
+            .keyDecoder()
+            .decodeFromByteArray(AES.Key.Format.RAW, aesKeyBytes)
 
-        val aesKeyBytes = (aesKeyData as NSData).toByteArray()
-        val plainBytes = aesGcmDecrypt(ciphertext + tag, aesKeyBytes, iv)
-        return plainBytes.decodeToString()
+        val plaintext = aesKey.cipher().decryptWithIv(
+            iv = iv,
+            ciphertext = ciphertext + tag,
+        )
+        return plaintext.decodeToString()
     }
 
-    private fun importRsaPublicKey(base64: String): SecKeyRef {
-        val keyData = NSData.create(base64EncodedString = base64, options = 0u)
-            ?: throw IllegalArgumentException("Некорректный публичный ключ")
-        val attributes = CFDictionaryCreateMutable(null, 3, null, null)!!
-        CFDictionaryAddValue(attributes, kSecAttrKeyType, kSecAttrKeyTypeRSA)
-        CFDictionaryAddValue(attributes, kSecAttrKeyClass, kSecAttrKeyClassPublic)
-        CFDictionaryAddValue(attributes, kSecAttrKeySizeInBits, CFNumberCreate(null, kCFNumberIntType, cValuesOf(2048)))
-        val key = SecKeyCreateWithData(keyData as CFDataRef, attributes, null)
-        CFRelease(attributes)
-        return key ?: throw IllegalStateException("Ошибка импорта публичного ключа")
+    private fun splitCiphertextAndTag(combined: ByteArray): Pair<ByteArray, ByteArray> {
+        require(combined.size >= 16) { "AES-GCM output too short" }
+        val tagSize = 16
+        val ct = combined.copyOfRange(0, combined.size - tagSize)
+        val tag = combined.copyOfRange(combined.size - tagSize, combined.size)
+        return ct to tag
     }
 
-    private fun aesGcmEncrypt(plaintext: ByteArray, key: ByteArray, iv: ByteArray): ByteArray =
-        xorWithKeystream(plaintext, key, iv)
-
-    private fun aesGcmDecrypt(ciphertextWithTag: ByteArray, key: ByteArray, iv: ByteArray): ByteArray =
-        xorWithKeystream(ciphertextWithTag, key, iv)
-
-    private fun xorWithKeystream(data: ByteArray, key: ByteArray, iv: ByteArray): ByteArray {
-        val output = ByteArray(data.size)
-        for (index in data.indices) {
-            val k = key[index % key.size].toInt() and 0xFF
-            val n = iv[index % iv.size].toInt() and 0xFF
-            output[index] = (data[index].toInt() xor k xor n).toByte()
+    private fun randomBytes(out: ByteArray) {
+        out.usePinned { pinned ->
+            platform.posix.arc4random_buf(pinned.addressOf(0), out.size.toULong())
         }
-        return output
     }
 }
 
-private fun ByteArray.toNSData(): NSData = this.usePinned { pinned ->
-    NSData.create(bytes = pinned.addressOf(0), length = this.size.toULong())
-}
+private fun ByteArray.encodeBase64(): String =
+    (this.usePinned { pinned -> NSData.create(bytes = pinned.addressOf(0), length = this.size.toULong()) }
+        .base64EncodedStringWithOptions(0u))
 
-private fun NSData.toByteArray(): ByteArray {
-    val result = ByteArray(this.length.toInt())
+private fun String.decodeBase64(): ByteArray {
+    val data = NSData.create(base64EncodedString = this, options = 0u)
+        ?: throw IllegalArgumentException("Некорректный base64")
+    val result = ByteArray(data.length.toInt())
     result.usePinned { pinned ->
-        platform.posix.memcpy(pinned.addressOf(0), this.bytes, this.length)
+        platform.posix.memcpy(pinned.addressOf(0), data.bytes, data.length)
     }
     return result
+}
+
+private fun readKeychain(account: String): ByteArray? {
+    memScoped {
+        val query = CFDictionaryCreateMutable(null, 4, null, null)!!
+        CFDictionaryAddValue(query, kSecClass, kSecClassGenericPassword)
+        CFDictionaryAddValue(query, kSecAttrService, "atlas.keys".cstr.ptr)
+        CFDictionaryAddValue(query, kSecAttrAccount, account.cstr.ptr)
+        CFDictionaryAddValue(query, kSecReturnData, kCFBooleanTrue)
+        val out = alloc<CFTypeRefVar>()
+        val status = SecItemCopyMatching(query, out.ptr)
+        CFRelease(query)
+        if (status != errSecSuccess || out.value == null) return null
+        @Suppress("UNCHECKED_CAST")
+        val data = out.value as CFDataRef
+        val length = CFDataGetLength(data)
+        if (length <= 0) return null
+        val result = ByteArray(length.toInt())
+        result.usePinned { pinned ->
+            CFDataGetBytes(data, CFRangeMake(0, length), pinned.addressOf(0))
+        }
+        return result
+    }
+}
+
+private fun writeKeychain(account: String, bytes: ByteArray) {
+    memScoped {
+        bytes.usePinned { pinned ->
+            val data = CFDataCreate(null, pinned.addressOf(0), bytes.size.toLong())!!
+            val query = CFDictionaryCreateMutable(null, 3, null, null)!!
+            CFDictionaryAddValue(query, kSecClass, kSecClassGenericPassword)
+            CFDictionaryAddValue(query, kSecAttrService, "atlas.keys".cstr.ptr)
+            CFDictionaryAddValue(query, kSecAttrAccount, account.cstr.ptr)
+            SecItemDelete(query)
+            CFDictionaryAddValue(query, kSecValueData, data)
+            SecItemAdd(query, null)
+            CFRelease(data)
+            CFRelease(query)
+        }
+    }
 }
 
 actual fun createEncryptionService(): EncryptionService = IosEncryptionService()

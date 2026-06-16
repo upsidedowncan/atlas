@@ -22,6 +22,7 @@ kodeinEmoji = "2.3.0"
 emojiKt = "1.4.0"
 kmpEmojiPicker = "0.1.0"
 imagePickerKmp = "1.0.35"
+whyolegCryptography = "0.6.0"
 
 [libraries]
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
@@ -60,6 +61,9 @@ kodein-emoji-compose = { module = "org.kodein.emoji:emoji-compose-m3", version.r
 emoji-kt-core = { module = "org.kodein.emoji:emoji-kt", version.ref = "emojiKt" }
 kmp-emoji-picker = { module = "me.digitalby:kmp-emoji-picker", version.ref = "kmpEmojiPicker" }
 image-picker-kmp = { module = "io.github.ismoy:imagepickerkmp", version.ref = "imagePickerKmp" }
+whyoleg-cryptography-core = { module = "dev.whyoleg.cryptography:cryptography-core", version.ref = "whyolegCryptography" }
+whyoleg-cryptography-ios = { module = "dev.whyoleg.cryptography:cryptography-ios", version.ref = "whyolegCryptography" }
+whyoleg-cryptography-jdk = { module = "dev.whyoleg.cryptography:cryptography-provider-jdk", version.ref = "whyolegCryptography" }
 
 [plugins]
 androidApplication = { id = "com.android.application", version.ref = "agp" }
