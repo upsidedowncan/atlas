@@ -1,11 +1,14 @@
 package atlas.messenger.ui
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -39,10 +42,11 @@ import com.composables.icons.materialsymbols.roundedfilled.Arrow_forward
 import com.composables.icons.materialsymbols.roundedfilled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.LoadingIndicator
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
@@ -65,12 +69,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import kotlin.math.sin
+import kotlin.math.cos
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -90,11 +98,9 @@ fun AuthScreen(viewModel: ChatViewModel) {
     var currentStep by remember { mutableStateOf(AuthStep.WELCOME) }
 
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(colors.background),
+        modifier = Modifier.fillMaxSize().background(colors.background),
     ) {
-        MessengerAuthBackdrop(colors)
+        ExpressiveAuthBackdrop(colors)
 
         if (state.isConnecting && currentStep == AuthStep.WELCOME) {
             ConnectingState(colors)
@@ -103,21 +109,9 @@ fun AuthScreen(viewModel: ChatViewModel) {
                 val isMobile = maxWidth < 720.dp
 
                 if (isMobile) {
-                    MobileAuthLayout(
-                        state = state,
-                        currentStep = currentStep,
-                        onStepChanged = { currentStep = it },
-                        viewModel = viewModel,
-                        colors = colors,
-                    )
+                    MobileAuthLayout(state, currentStep, { currentStep = it }, viewModel, colors)
                 } else {
-                    DesktopAuthLayout(
-                        state = state,
-                        currentStep = currentStep,
-                        onStepChanged = { currentStep = it },
-                        viewModel = viewModel,
-                        colors = colors,
-                    )
+                    DesktopAuthLayout(state, currentStep, { currentStep = it }, viewModel, colors)
                 }
 
                 AuthTopControls(
@@ -154,28 +148,16 @@ private fun MobileAuthLayout(
     colors: ColorScheme,
 ) {
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 24.dp)
-            .padding(top = 76.dp, bottom = 28.dp),
+        modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp).padding(top = 76.dp, bottom = 28.dp),
         verticalArrangement = Arrangement.SpaceBetween,
     ) {
         ConversationPreview(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
+            modifier = Modifier.fillMaxWidth().weight(1f),
             compact = currentStep != AuthStep.WELCOME,
             colors = colors,
         )
 
-        AuthStepContent(
-            state = state,
-            currentStep = currentStep,
-            onStepChanged = onStepChanged,
-            viewModel = viewModel,
-            colors = colors,
-            modifier = Modifier.fillMaxWidth(),
-        )
+        AuthStepContent(state, currentStep, onStepChanged, viewModel, colors, modifier = Modifier.fillMaxWidth())
     }
 }
 
@@ -189,10 +171,7 @@ private fun DesktopAuthLayout(
 ) {
     Row(modifier = Modifier.fillMaxSize()) {
         ConversationPreview(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxHeight()
-                .padding(start = 56.dp, top = 96.dp, end = 32.dp, bottom = 56.dp),
+            modifier = Modifier.weight(1f).fillMaxHeight().padding(start = 56.dp, top = 96.dp, end = 32.dp, bottom = 56.dp),
             compact = false,
             colors = colors,
         )
@@ -201,18 +180,11 @@ private fun DesktopAuthLayout(
             modifier = Modifier
                 .widthIn(min = 420.dp, max = 480.dp)
                 .fillMaxHeight()
-                .background(colors.surface.copy(alpha = 0.92f))
+                .background(colors.surfaceContainerHigh.copy(alpha = 0.95f))
                 .padding(horizontal = 40.dp, vertical = 92.dp),
             verticalArrangement = Arrangement.Center,
         ) {
-            AuthStepContent(
-                state = state,
-                currentStep = currentStep,
-                onStepChanged = onStepChanged,
-                viewModel = viewModel,
-                colors = colors,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            AuthStepContent(state, currentStep, onStepChanged, viewModel, colors, modifier = Modifier.fillMaxWidth())
         }
     }
 }
@@ -229,33 +201,27 @@ private fun AuthStepContent(
     AnimatedContent(
         targetState = currentStep,
         transitionSpec = {
+            val springSpec = spring<Float>(stiffness = Spring.StiffnessMediumLow)
             if (targetState.ordinal > initialState.ordinal) {
-                (slideInHorizontally { it / 2 } + fadeIn()).togetherWith(slideOutHorizontally { -it / 2 } + fadeOut())
+                (slideInHorizontally(springSpec) { it / 3 } + fadeIn(springSpec))
+                    .togetherWith(slideOutHorizontally(springSpec) { -it / 3 } + fadeOut(springSpec))
             } else {
-                (slideInHorizontally { -it / 2 } + fadeIn()).togetherWith(slideOutHorizontally { it / 2 } + fadeOut())
+                (slideInHorizontally(springSpec) { -it / 3 } + fadeIn(springSpec))
+                    .togetherWith(slideOutHorizontally(springSpec) { it / 3 } + fadeOut(springSpec))
             }
         },
         modifier = modifier,
     ) { step ->
         Column(modifier = Modifier.fillMaxWidth()) {
             when (step) {
-                AuthStep.WELCOME -> WelcomeStep(
-                    onGetStarted = { onStepChanged(AuthStep.USERNAME) },
-                    colors = colors,
-                )
-
+                AuthStep.WELCOME -> WelcomeStep(onGetStarted = { onStepChanged(AuthStep.USERNAME) }, colors = colors)
                 AuthStep.USERNAME -> UsernameStep(
                     username = state.username,
                     onUsernameChanged = viewModel::onUsernameChanged,
                     onNext = { if (state.username.length >= 2) onStepChanged(AuthStep.PASSWORD) },
                     colors = colors,
                 )
-
-                AuthStep.PASSWORD -> PasswordStep(
-                    state = state,
-                    viewModel = viewModel,
-                    colors = colors,
-                )
+                AuthStep.PASSWORD -> PasswordStep(state = state, viewModel = viewModel, colors = colors)
             }
         }
     }
@@ -265,13 +231,22 @@ private fun AuthStepContent(
 private fun WelcomeStep(onGetStarted: () -> Unit, colors: ColorScheme) {
     Text(
         text = "Atlas",
-        style = MaterialTheme.typography.displaySmall,
+        style = MaterialTheme.typography.displayLarge,
         color = colors.onSurface,
         fontWeight = FontWeight.Black,
-        letterSpacing = 0.sp,
+        letterSpacing = (-1).sp,
     )
 
-    Spacer(Modifier.height(10.dp))
+    Spacer(Modifier.height(6.dp))
+
+    Text(
+        text = "Private messenger",
+        style = MaterialTheme.typography.titleLarge,
+        color = colors.primary,
+        fontWeight = FontWeight.SemiBold,
+    )
+
+    Spacer(Modifier.height(16.dp))
 
     Text(
         text = "Быстрый приватный мессенджер для разговоров, которые должны ощущаться спокойно.",
@@ -280,16 +255,21 @@ private fun WelcomeStep(onGetStarted: () -> Unit, colors: ColorScheme) {
         lineHeight = 24.sp,
     )
 
-    Spacer(Modifier.height(32.dp))
+    Spacer(Modifier.height(40.dp))
 
     Button(
         onClick = onGetStarted,
-        modifier = Modifier.fillMaxWidth().height(58.dp),
-        shape = RoundedCornerShape(18.dp),
+        modifier = Modifier.fillMaxWidth().height(64.dp),
+        shape = CircleShape,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = colors.primary,
+            contentColor = colors.onPrimary,
+        ),
+        elevation = ButtonDefaults.buttonElevation(defaultElevation = 6.dp, pressedElevation = 2.dp),
     ) {
         Text("Начать", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.width(8.dp))
-        Icon(MaterialSymbols.RoundedFilled.Arrow_forward, contentDescription = null)
+        Spacer(Modifier.width(12.dp))
+        Icon(MaterialSymbols.RoundedFilled.Arrow_forward, contentDescription = null, modifier = Modifier.size(22.dp))
     }
 }
 
@@ -302,7 +282,7 @@ private fun UsernameStep(
 ) {
     Text(
         text = "Выберите имя",
-        style = MaterialTheme.typography.headlineMedium,
+        style = MaterialTheme.typography.headlineLarge,
         color = colors.onSurface,
         fontWeight = FontWeight.Bold,
     )
@@ -311,35 +291,47 @@ private fun UsernameStep(
 
     Text(
         text = "Так друзья будут находить вас в Atlas.",
-        style = MaterialTheme.typography.bodyMedium,
+        style = MaterialTheme.typography.bodyLarge,
         color = colors.onSurfaceVariant,
     )
 
-    Spacer(Modifier.height(28.dp))
+    Spacer(Modifier.height(32.dp))
 
     OutlinedTextField(
         value = username,
         onValueChange = onUsernameChanged,
         placeholder = { Text("username") },
-        prefix = { Text("@") },
+        prefix = { Text("@", color = colors.primary, fontWeight = FontWeight.Bold) },
         singleLine = true,
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
         keyboardActions = KeyboardActions(onNext = { onNext() }),
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(28.dp),
         colors = OutlinedTextFieldDefaults.colors(
             focusedBorderColor = colors.primary,
             unfocusedBorderColor = colors.outlineVariant,
+            focusedContainerColor = colors.surfaceContainerLow,
+            unfocusedContainerColor = colors.surfaceContainerLow,
         ),
     )
 
-    Spacer(Modifier.height(24.dp))
+    Spacer(Modifier.height(28.dp))
+
+    val buttonScale by animateFloatAsState(
+        targetValue = if (username.length >= 2) 1f else 0.95f,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+    )
 
     Button(
         onClick = onNext,
         enabled = username.length >= 2,
-        modifier = Modifier.fillMaxWidth().height(56.dp),
-        shape = RoundedCornerShape(18.dp),
+        modifier = Modifier.fillMaxWidth().height(64.dp),
+        shape = CircleShape,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = colors.primary,
+            contentColor = colors.onPrimary,
+        ),
+        elevation = ButtonDefaults.buttonElevation(defaultElevation = 6.dp, pressedElevation = 2.dp),
     ) {
         Text("Продолжить", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
     }
@@ -354,7 +346,7 @@ private fun PasswordStep(
 ) {
     Text(
         text = if (state.isRegistering) "Создать аккаунт" else "С возвращением",
-        style = MaterialTheme.typography.headlineMedium,
+        style = MaterialTheme.typography.headlineLarge,
         color = colors.onSurface,
         fontWeight = FontWeight.Bold,
     )
@@ -362,16 +354,12 @@ private fun PasswordStep(
     Spacer(Modifier.height(8.dp))
 
     Text(
-        text = if (state.isRegistering) {
-            "Придумайте пароль для @${state.username}."
-        } else {
-            "Введите пароль, чтобы продолжить как @${state.username}."
-        },
-        style = MaterialTheme.typography.bodyMedium,
+        text = if (state.isRegistering) "Придумайте пароль для @${state.username}." else "Введите пароль, чтобы продолжить как @${state.username}.",
+        style = MaterialTheme.typography.bodyLarge,
         color = colors.onSurfaceVariant,
     )
 
-    Spacer(Modifier.height(24.dp))
+    Spacer(Modifier.height(28.dp))
 
     SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
         SegmentedButton(
@@ -379,8 +367,8 @@ private fun PasswordStep(
             onClick = { viewModel.setAuthMode(false) },
             shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
             colors = SegmentedButtonDefaults.colors(
-                activeContainerColor = colors.primary,
-                activeContentColor = colors.onPrimary,
+                activeContainerColor = colors.primaryContainer,
+                activeContentColor = colors.onPrimaryContainer,
             ),
         ) {
             Text("Вход", style = MaterialTheme.typography.labelLarge)
@@ -390,15 +378,15 @@ private fun PasswordStep(
             onClick = { viewModel.setAuthMode(true) },
             shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
             colors = SegmentedButtonDefaults.colors(
-                activeContainerColor = colors.primary,
-                activeContentColor = colors.onPrimary,
+                activeContainerColor = colors.primaryContainer,
+                activeContentColor = colors.onPrimaryContainer,
             ),
         ) {
             Text("Регистрация", style = MaterialTheme.typography.labelLarge)
         }
     }
 
-    Spacer(Modifier.height(16.dp))
+    Spacer(Modifier.height(20.dp))
 
     OutlinedTextField(
         value = state.passwordInput,
@@ -406,20 +394,19 @@ private fun PasswordStep(
         placeholder = { Text("Пароль") },
         singleLine = true,
         visualTransformation = PasswordVisualTransformation(),
-        keyboardOptions = KeyboardOptions(
-            keyboardType = KeyboardType.Password,
-            imeAction = ImeAction.Done,
-        ),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
         keyboardActions = KeyboardActions(onDone = { viewModel.connect() }),
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(28.dp),
         colors = OutlinedTextFieldDefaults.colors(
             focusedBorderColor = colors.primary,
             unfocusedBorderColor = colors.outlineVariant,
+            focusedContainerColor = colors.surfaceContainerLow,
+            unfocusedContainerColor = colors.surfaceContainerLow,
         ),
     )
 
-    AnimatedContent(targetState = state.errorMessage) { error ->
+    AnimatedContent(targetState = state.errorMessage, label = "error") { error ->
         if (error != null) {
             Text(
                 text = error,
@@ -430,19 +417,21 @@ private fun PasswordStep(
         }
     }
 
-    Spacer(Modifier.height(24.dp))
+    Spacer(Modifier.height(28.dp))
 
     Button(
         onClick = { viewModel.connect() },
         enabled = !state.isConnecting && state.passwordInput.length >= 4,
-        modifier = Modifier.fillMaxWidth().height(56.dp),
-        shape = RoundedCornerShape(18.dp),
+        modifier = Modifier.fillMaxWidth().height(64.dp),
+        shape = CircleShape,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = colors.primary,
+            contentColor = colors.onPrimary,
+        ),
+        elevation = ButtonDefaults.buttonElevation(defaultElevation = 6.dp, pressedElevation = 2.dp),
     ) {
         if (state.isConnecting) {
-            LoadingIndicator(
-                modifier = Modifier.size(24.dp),
-                color = colors.onPrimary,
-            )
+            LoadingIndicator(modifier = Modifier.size(28.dp), color = colors.onPrimary)
         } else {
             Text(
                 if (state.isRegistering) "Создать аккаунт" else "Войти",
@@ -461,25 +450,18 @@ private fun AuthTopControls(
     onSettings: () -> Unit,
     colors: ColorScheme,
 ) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(20.dp),
-    ) {
+    Box(modifier = Modifier.fillMaxSize().padding(20.dp)) {
         if (currentStep != AuthStep.WELCOME) {
             IconButton(
                 shapes = IconButtonDefaults.shapes(),
                 onClick = onBack,
                 modifier = Modifier
                     .align(Alignment.TopStart)
+                    .shadow(8.dp, CircleShape)
                     .clip(CircleShape)
-                    .background(colors.surface.copy(alpha = 0.72f)),
+                    .background(colors.surfaceContainerHigh),
             ) {
-                Icon(
-                    imageVector = MaterialSymbols.RoundedFilled.Arrow_back,
-                    contentDescription = "Назад",
-                    tint = colors.onSurface,
-                )
+                Icon(MaterialSymbols.RoundedFilled.Arrow_back, contentDescription = "Назад", tint = colors.onSurface)
             }
         }
 
@@ -488,14 +470,11 @@ private fun AuthTopControls(
             onClick = onSettings,
             modifier = Modifier
                 .align(Alignment.TopEnd)
+                .shadow(8.dp, CircleShape)
                 .clip(CircleShape)
-                .background(colors.surface.copy(alpha = 0.72f)),
+                .background(colors.surfaceContainerHigh),
         ) {
-            Icon(
-                imageVector = MaterialSymbols.RoundedFilled.Settings,
-                contentDescription = "Настройки",
-                tint = colors.onSurface,
-            )
+            Icon(MaterialSymbols.RoundedFilled.Settings, contentDescription = "Настройки", tint = colors.onSurface)
         }
     }
 }
@@ -505,11 +484,8 @@ private fun AuthTopControls(
 private fun ConnectingState(colors: ColorScheme) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            LoadingIndicator(
-                modifier = Modifier.size(64.dp),
-                color = colors.primary,
-            )
-            Spacer(Modifier.height(24.dp))
+            LoadingIndicator(modifier = Modifier.size(72.dp), color = colors.primary)
+            Spacer(Modifier.height(28.dp))
             Text("Подключение к Atlas...", style = MaterialTheme.typography.bodyLarge, color = colors.onSurfaceVariant)
         }
     }
@@ -521,51 +497,32 @@ private fun ConversationPreview(
     compact: Boolean,
     colors: ColorScheme,
 ) {
-    Column(
-        modifier = modifier,
-        verticalArrangement = Arrangement.Center,
-    ) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.Center) {
         Text(
             text = "Ваши чаты, без лишнего шума",
-            style = if (compact) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.displaySmall,
+            style = if (compact) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.displayMedium,
             color = colors.onBackground,
             fontWeight = FontWeight.Black,
-            lineHeight = if (compact) 34.sp else 54.sp,
+            lineHeight = if (compact) 36.sp else 56.sp,
         )
-        Spacer(Modifier.height(if (compact) 18.dp else 32.dp))
-        ChatBubble(
-            text = "Ты уже в Atlas?",
-            own = false,
-            colors = colors,
-            modifier = Modifier.fillMaxWidth(0.72f),
-        )
-        Spacer(Modifier.height(10.dp))
-        ChatBubble(
-            text = "Да. Всё быстро, чисто и без огромных экранов с карточками.",
-            own = true,
-            colors = colors,
-            modifier = Modifier.align(Alignment.End).fillMaxWidth(0.82f),
-        )
+        Spacer(Modifier.height(if (compact) 20.dp else 36.dp))
+        PreviewBubble(text = "Ты уже в Atlas?", own = false, colors = colors, modifier = Modifier.fillMaxWidth(0.72f))
+        Spacer(Modifier.height(12.dp))
+        PreviewBubble(text = "Да. Всё быстро, чисто и без огромных экранов с карточками.", own = true, colors = colors, modifier = Modifier.align(Alignment.End).fillMaxWidth(0.82f))
         if (!compact) {
-            Spacer(Modifier.height(10.dp))
-            ChatBubble(
-                text = "Вот так и должен ощущаться мессенджер.",
-                own = false,
-                colors = colors,
-                modifier = Modifier.fillMaxWidth(0.68f),
-            )
+            Spacer(Modifier.height(12.dp))
+            PreviewBubble(text = "Вот так и должен ощущаться мессенджер.", own = false, colors = colors, modifier = Modifier.fillMaxWidth(0.68f))
         }
     }
 }
 
 @Composable
-private fun ChatBubble(
+private fun PreviewBubble(
     text: String,
     own: Boolean,
     colors: ColorScheme,
     modifier: Modifier = Modifier,
 ) {
-    // the preview bubbles should feel alive, but never distract from signing in
     val floatLoop = rememberInfiniteTransition(label = "auth-bubble-float")
     val drift by floatLoop.animateFloat(
         initialValue = 0f,
@@ -576,80 +533,81 @@ private fun ChatBubble(
         ),
         label = "auth-bubble-drift",
     )
-    val yOffset = (sin((drift + if (own) 0.35f else 0f) * 6.28318f) * 4f).dp
-    val bubbleColor = if (own) colors.primary else colors.surface.copy(alpha = 0.86f)
-    val textColor = if (own) colors.onPrimary else colors.onSurface
+    val yOffset = (sin((drift + if (own) 0.35f else 0f) * 6.28318f) * 5f).dp
+    val bubbleColor = if (own) colors.primaryContainer else colors.surfaceContainerHigh
+    val textColor = if (own) colors.onPrimaryContainer else colors.onSurface
+
     Box(
         modifier = modifier
             .offset(y = yOffset)
+            .shadow(4.dp, RoundedCornerShape(24.dp))
             .clip(
                 RoundedCornerShape(
-                    topStart = 22.dp,
-                    topEnd = 22.dp,
-                    bottomStart = if (own) 22.dp else 6.dp,
-                    bottomEnd = if (own) 6.dp else 22.dp,
+                    topStart = 24.dp, topEnd = 24.dp,
+                    bottomStart = if (own) 24.dp else 8.dp,
+                    bottomEnd = if (own) 8.dp else 24.dp,
                 )
             )
             .background(bubbleColor)
-            .padding(horizontal = 18.dp, vertical = 13.dp),
+            .padding(horizontal = 20.dp, vertical = 14.dp),
     ) {
-        Text(
-            text = text,
-            color = textColor,
-            style = MaterialTheme.typography.bodyLarge,
-            lineHeight = 23.sp,
-        )
+        Text(text = text, color = textColor, style = MaterialTheme.typography.bodyLarge, lineHeight = 24.sp)
     }
 }
 
 @Composable
-private fun MessengerAuthBackdrop(colors: ColorScheme) {
-    // slow background drift keeps the screen warm without going back to flying shapes
+private fun ExpressiveAuthBackdrop(colors: ColorScheme) {
     val infiniteTransition = rememberInfiniteTransition(label = "auth-bg-motion")
     val motion by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(16000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart,
-        ),
+        animationSpec = infiniteRepeatable(animation = tween(20000, easing = LinearEasing), repeatMode = RepeatMode.Restart),
         label = "auth-bg-motion-progress",
     )
 
     Canvas(modifier = Modifier.fillMaxSize()) {
+        val w = size.width
+        val h = size.height
+
         drawRect(
-            brush = Brush.linearGradient(
+            brush = Brush.radialGradient(
                 colors = listOf(
+                    colors.primary.copy(alpha = 0.08f),
                     colors.background,
-                    colors.primary.copy(alpha = 0.12f),
-                    colors.tertiary.copy(alpha = 0.10f),
+                    colors.tertiary.copy(alpha = 0.05f),
                 ),
-                start = Offset.Zero,
-                end = Offset(size.width, size.height),
+                center = Offset(w * 0.3f, h * 0.4f),
+                radius = w * 0.8f,
             )
         )
 
-        val bubbleColor = colors.primary.copy(alpha = 0.055f)
-        val lineColor = colors.onBackground.copy(alpha = 0.035f)
-        for (i in 0..8) {
-            val x = size.width * ((i * 0.137f + 0.08f + motion * 0.055f) % 1f)
-            val y = size.height * ((i * 0.211f + 0.05f + sin((motion + i * 0.13f) * 6.28318f) * 0.018f) % 1f)
-            val w = size.width * (0.16f + (i % 3) * 0.045f)
-            val h = 36.dp.toPx() + (i % 4) * 10.dp.toPx()
-            drawRoundRect(
-                color = bubbleColor,
-                topLeft = Offset(x, y),
-                size = Size(w, h),
-                cornerRadius = CornerRadius(22.dp.toPx(), 22.dp.toPx()),
-            )
+        val shapeColor1 = colors.primary.copy(alpha = 0.06f)
+        val shapeColor2 = colors.tertiary.copy(alpha = 0.05f)
+        val shapeColor3 = colors.secondary.copy(alpha = 0.04f)
+
+        for (i in 0..5) {
+            val phase = motion + i * 0.17f
+            val x = w * ((i * 0.18f + 0.05f + sin(phase * 3.14f) * 0.03f) % 1f)
+            val y = h * ((i * 0.22f + 0.08f + cos(phase * 2.7f) * 0.02f) % 1f)
+            val radius = w * (0.08f + (i % 3) * 0.04f)
+            val color = when (i % 3) { 0 -> shapeColor1; 1 -> shapeColor2; else -> shapeColor3 }
+
+            drawCircle(color = color, radius = radius, center = Offset(x, y))
         }
-        for (i in 0..6) {
-            val x = size.width * (i / 6f)
-            drawLine(
-                color = lineColor,
-                start = Offset(x, 0f),
-                end = Offset(x + size.width * 0.18f, size.height),
-                strokeWidth = 1.dp.toPx(),
+
+        for (i in 0..3) {
+            val phase = motion + i * 0.25f
+            val x = w * ((i * 0.28f + 0.1f + cos(phase * 2.2f) * 0.04f) % 1f)
+            val y = h * ((i * 0.3f + 0.15f + sin(phase * 1.8f) * 0.03f) % 1f)
+            val bw = w * (0.12f + (i % 2) * 0.06f)
+            val bh = 48.dp.toPx() + (i % 3) * 16.dp.toPx()
+            val color = when (i % 2) { 0 -> shapeColor2; else -> shapeColor1 }
+
+            drawRoundRect(
+                color = color,
+                topLeft = Offset(x, y),
+                size = Size(bw, bh),
+                cornerRadius = CornerRadius(32.dp.toPx()),
             )
         }
     }
@@ -669,18 +627,14 @@ private fun AuthServerUrlDialog(
         title = { Text("Адрес сервера") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    "Введите адрес сервера для подключения",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Text("Введите адрес сервера для подключения", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 TextField(
                     value = urlText,
                     onValueChange = { urlText = it },
                     label = { Text("ws://адрес:порт") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(16.dp),
                     colors = TextFieldDefaults.colors(
                         unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                         focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
@@ -688,20 +642,7 @@ private fun AuthServerUrlDialog(
                 )
             }
         },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    onUrlChanged(urlText.trim())
-                    onDismiss()
-                },
-            ) {
-                Text("Сохранить")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Отмена")
-            }
-        },
+        confirmButton = { TextButton(onClick = { onUrlChanged(urlText.trim()); onDismiss() }) { Text("Сохранить") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
     )
 }

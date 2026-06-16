@@ -48,15 +48,17 @@ kotlin {
             implementation(libs.kotlinx.serializationJson)
             implementation(libs.kotlinx.coroutinesCore)
 
-            implementation("com.composables:icons-material-symbols-cmp:2.2.1")
-            implementation("com.composables:icons-material-symbols-outlined-cmp:2.2.1")
-            implementation("com.composables:icons-material-symbols-rounded-filled-cmp:2.2.1")
+            implementation(libs.compose.icons.material.symbols)
+            implementation(libs.compose.icons.material.symbols.outlined)
+            implementation(libs.compose.icons.material.symbols.rounded.filled)
             implementation(libs.coil.compose)
             implementation(libs.coil.network.ktor)
             implementation(libs.kmp.emoji.picker)
             implementation(libs.image.picker.kmp)
             implementation(libs.whyoleg.cryptography.core)
-            api("io.github.kdroidfilter:composewebview:1.0.0-beta-01")
+            implementation(libs.kotlinx.datetime)
+            implementation(libs.markdown.renderer)
+            api(libs.compose.webview)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
@@ -90,8 +92,8 @@ android {
         applicationId = "atlas.messenger"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "0.0.2"
     }
     packaging {
         resources {
@@ -133,7 +135,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "atlas.messenger"
-            packageVersion = "1.0.0"
+            packageVersion = "0.0.2"
         }
     }
 }

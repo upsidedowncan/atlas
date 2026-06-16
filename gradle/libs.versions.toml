@@ -11,17 +11,22 @@ androidx-lifecycle = "2.10.0"
 androidx-testExt = "1.3.0"
 composeHotReload = "1.1.0-beta01"
 composeMultiplatform = "1.11.0-alpha04"
+composeIcons = "2.2.1"
+composeWebView = "1.0.0-beta-01"
 junit = "4.13.2"
 kotlin = "2.3.20"
 kotlinx-coroutines = "1.10.2"
+kotlinx-datetime = "0.6.2"
 kotlinx-serialization = "1.8.1"
 ktor = "3.1.3"
 material3 = "1.11.0-alpha04"
+markdownRenderer = "0.32.0"
 coil = "3.0.4"
 kodeinEmoji = "2.3.0"
 emojiKt = "1.4.0"
 kmpEmojiPicker = "0.1.0"
 imagePickerKmp = "1.0.35"
+multiplatformSettings = "1.3.0"
 whyolegCryptography = "0.6.0"
 
 [libraries]
@@ -61,6 +66,14 @@ kodein-emoji-compose = { module = "org.kodein.emoji:emoji-compose-m3", version.r
 emoji-kt-core = { module = "org.kodein.emoji:emoji-kt", version.ref = "emojiKt" }
 kmp-emoji-picker = { module = "me.digitalby:kmp-emoji-picker", version.ref = "kmpEmojiPicker" }
 image-picker-kmp = { module = "io.github.ismoy:imagepickerkmp", version.ref = "imagePickerKmp" }
+compose-icons-material-symbols = { module = "com.composables:icons-material-symbols-cmp", version.ref = "composeIcons" }
+compose-icons-material-symbols-outlined = { module = "com.composables:icons-material-symbols-outlined-cmp", version.ref = "composeIcons" }
+compose-icons-material-symbols-rounded-filled = { module = "com.composables:icons-material-symbols-rounded-filled-cmp", version.ref = "composeIcons" }
+compose-webview = { module = "io.github.kdroidfilter:composewebview", version.ref = "composeWebView" }
+kotlinx-datetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.ref = "kotlinx-datetime" }
+markdown-renderer = { module = "com.mikepenz:multiplatform-markdown-renderer-m3", version.ref = "markdownRenderer" }
+multiplatform-settings = { module = "com.russhwolf:multiplatform-settings", version.ref = "multiplatformSettings" }
+multiplatform-settings-serialization = { module = "com.russhwolf:multiplatform-settings-serialization", version.ref = "multiplatformSettings" }
 whyoleg-cryptography-core = { module = "dev.whyoleg.cryptography:cryptography-core", version.ref = "whyolegCryptography" }
 whyoleg-cryptography-apple = { module = "dev.whyoleg.cryptography:cryptography-provider-apple", version.ref = "whyolegCryptography" }
 whyoleg-cryptography-jdk = { module = "dev.whyoleg.cryptography:cryptography-provider-jdk", version.ref = "whyolegCryptography" }

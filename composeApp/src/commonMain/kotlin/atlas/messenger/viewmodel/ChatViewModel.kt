@@ -8,6 +8,7 @@ import atlas.messenger.data.ChatMessage
 import atlas.messenger.network.HistoryEntry
 import atlas.messenger.network.MiteChatContextMessage
 import atlas.messenger.network.ServerEvent
+import atlas.messenger.network.ConnectionState
 import atlas.messenger.network.WebSocketClient
 import atlas.messenger.audio.createAudioLevelMonitor
 import atlas.messenger.session.PersistedMiteChat
@@ -89,6 +90,10 @@ data class ChatUiState(
     val showAtlasXActivatedScreen: Boolean = false,
     val atlasXSubscribed: Boolean = false,
     val atlasXImageData: String? = null,
+    val connectionState: ConnectionState = ConnectionState.DISCONNECTED,
+    val replyToMessage: ChatMessage? = null,
+    val pinnedConversations: Set<String> = emptySet(),
+    val toastMessage: String? = null,
 )
 data class MiteChat(
     val id: String,
@@ -140,7 +145,6 @@ class ChatViewModel : ViewModel() {
     init {
         sessionStore.load()?.let { (username, password) ->
             _state.update { it.copy(username = username, passwordInput = password) }
-            // saved credentials mean we can get the user home quickly
             if (username.isNotBlank() && password.isNotBlank()) {
                 connect()
             }
@@ -175,6 +179,12 @@ class ChatViewModel : ViewModel() {
         }.sortedByDescending { it.updatedAtMs }
         _state.update { it.copy(miteChats = persistedMiteChats) }
         _state.update { it.copy(publicKeyFingerprint = computeFingerprint(encryption.publicKeyBase64)) }
+
+        viewModelScope.launch {
+            wsClient.connectionState.collect { connState ->
+                _state.update { it.copy(connectionState = connState) }
+            }
+        }
     }
 
     fun onUsernameChanged(value: String) {
@@ -315,6 +325,25 @@ class ChatViewModel : ViewModel() {
             val next = if (messageId in current) current - messageId else current + messageId
             s.copy(starredMessageIds = next)
         }
+    }
+
+    fun setReplyToMessage(message: ChatMessage?) {
+        _state.update { it.copy(replyToMessage = message) }
+    }
+
+    fun togglePinConversation(peer: String) {
+        _state.update { s ->
+            val pinned = if (peer in s.pinnedConversations) s.pinnedConversations - peer else s.pinnedConversations + peer
+            s.copy(pinnedConversations = pinned)
+        }
+    }
+
+    fun showToast(message: String) {
+        _state.update { it.copy(toastMessage = message) }
+    }
+
+    fun dismissToast() {
+        _state.update { it.copy(toastMessage = null) }
     }
 
     fun openAtlasXScreen() {
