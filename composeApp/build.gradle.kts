@@ -79,10 +79,6 @@ kotlin {
             implementation(libs.ktor.client.darwin)
             implementation(libs.whyoleg.cryptography.apple)
         }
-
-        jsMain.dependencies {
-            implementation(libs.ktor.client.js)
-        }
     }
 }
 

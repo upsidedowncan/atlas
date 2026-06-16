@@ -18,7 +18,6 @@ private val provider = CryptographyProvider.Default
 
 private class IosEncryptionService : EncryptionService {
 
-    private val rsaOaep = provider.get(RSA.OAEP)
     private val aesGcm = provider.get(AES.GCM)
 
     private val keyPair: RSA.OAEP.KeyPair = runBlocking { loadOrGenerateKeyPair() }
@@ -36,7 +35,7 @@ private class IosEncryptionService : EncryptionService {
         if (existing != null) {
             val priv = rsa.privateKeyDecoder(SHA256).decodeFromByteArray(RSA.PrivateKey.Format.DER, existing)
             return object : RSA.OAEP.KeyPair {
-                override val publicKey: RSA.OAEP.PublicKey = priv.publicKey
+                override val publicKey: RSA.OAEP.PublicKey = priv.getPublicKeyBlocking()
                 override val privateKey: RSA.OAEP.PrivateKey = priv
             }
         }
@@ -140,7 +139,7 @@ private fun readKeychain(account: String): ByteArray? {
         if (length <= 0) return null
         val result = ByteArray(length.toInt())
         result.usePinned { pinned ->
-            CFDataGetBytes(data, CFRangeMake(0, length), pinned.addressOf(0))
+            CFDataGetBytes(data, CFRangeMake(0, length), pinned.addressOf(0).reinterpret())
         }
         return result
     }
@@ -149,7 +148,7 @@ private fun readKeychain(account: String): ByteArray? {
 private fun writeKeychain(account: String, bytes: ByteArray) {
     memScoped {
         bytes.usePinned { pinned ->
-            val data = CFDataCreate(null, pinned.addressOf(0), bytes.size.toLong())!!
+            val data = CFDataCreate(null, pinned.addressOf(0).reinterpret(), bytes.size.toLong())!!
             val query = CFDictionaryCreateMutable(null, 3, null, null)!!
             CFDictionaryAddValue(query, kSecClass, kSecClassGenericPassword)
             CFDictionaryAddValue(query, kSecAttrService, "atlas.keys".cstr.ptr)
