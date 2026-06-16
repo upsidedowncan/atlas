@@ -1,4 +1,4 @@
-@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
+@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class, dev.whyoleg.cryptography.DelicateCryptographyApi::class, dev.whyoleg.cryptography.CryptographyProviderApi::class)
 
 package atlas.messenger.crypto
 
@@ -8,6 +8,7 @@ import dev.whyoleg.cryptography.algorithms.*
 import dev.whyoleg.cryptography.algorithms.AES
 import dev.whyoleg.cryptography.algorithms.RSA
 import dev.whyoleg.cryptography.BinarySize.Companion.bits
+import kotlinx.coroutines.runBlocking
 import kotlinx.cinterop.*
 import platform.CoreFoundation.*
 import platform.Foundation.*
@@ -20,16 +21,16 @@ private class IosEncryptionService : EncryptionService {
     private val rsaOaep = provider.get(RSA.OAEP)
     private val aesGcm = provider.get(AES.GCM)
 
-    private val keyPair: RSA.OAEP.KeyPair by lazy { loadOrGenerateKeyPair() }
+    private val keyPair: RSA.OAEP.KeyPair = runBlocking { loadOrGenerateKeyPair() }
     private val publicKey: RSA.OAEP.PublicKey get() = keyPair.publicKey
     private val privateKey: RSA.OAEP.PrivateKey get() = keyPair.privateKey
 
     init {
-        // Trigger key loading or generation on construction so failures are visible.
-        keyPair
+        // Touch keyPair so initialization failures surface at construction.
+        keyPair.publicKey
     }
 
-    private fun loadOrGenerateKeyPair(): RSA.OAEP.KeyPair {
+    private suspend fun loadOrGenerateKeyPair(): RSA.OAEP.KeyPair {
         val rsa = provider.get(RSA.OAEP)
         val existing = readKeychain("atlas.rsa.private.der")
         if (existing != null) {
@@ -45,9 +46,11 @@ private class IosEncryptionService : EncryptionService {
     }
 
     override val publicKeyBase64: String
-        get() = publicKey.encodeToByteArray(RSA.PublicKey.Format.DER).encodeBase64()
+        get() = runBlocking {
+            publicKey.encodeToByteArray(RSA.PublicKey.Format.DER).encodeBase64()
+        }
 
-    override fun encrypt(plaintext: String, recipientPublicKeyBase64: String): EncryptedPayload {
+    override fun encrypt(plaintext: String, recipientPublicKeyBase64: String): EncryptedPayload = runBlocking {
         val recipientPublicKey = provider.get(RSA.OAEP)
             .publicKeyDecoder(SHA256)
             .decodeFromByteArray(RSA.PublicKey.Format.DER, recipientPublicKeyBase64.decodeBase64())
@@ -62,7 +65,7 @@ private class IosEncryptionService : EncryptionService {
             plaintext = plaintext.encodeToByteArray(),
         )
         val (ciphertext, tag) = splitCiphertextAndTag(ciphertextWithTag)
-        return EncryptedPayload(
+        EncryptedPayload(
             encryptedKey = encryptedKey.encodeBase64(),
             iv = iv.encodeBase64(),
             ciphertext = ciphertext.encodeBase64(),
@@ -73,7 +76,7 @@ private class IosEncryptionService : EncryptionService {
     override fun encryptForSelf(plaintext: String): EncryptedPayload =
         encrypt(plaintext, publicKeyBase64)
 
-    override fun decrypt(payload: EncryptedPayload): String {
+    override fun decrypt(payload: EncryptedPayload): String = runBlocking {
         val encryptedKeyBytes = payload.encryptedKey.decodeBase64()
         val iv = payload.iv.decodeBase64()
         val ciphertext = payload.ciphertext.decodeBase64()
@@ -88,7 +91,7 @@ private class IosEncryptionService : EncryptionService {
             iv = iv,
             ciphertext = ciphertext + tag,
         )
-        return plaintext.decodeToString()
+        plaintext.decodeToString()
     }
 
     private fun splitCiphertextAndTag(combined: ByteArray): Pair<ByteArray, ByteArray> {
