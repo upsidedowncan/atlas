@@ -20,8 +20,7 @@ private class IosEncryptionService : EncryptionService {
             CFDictionaryAddValue(attributes, kSecAttrKeySizeInBits, CFNumberCreate(null, kCFNumberIntType, cValuesOf(2048)))
             CFDictionaryAddValue(attributes, kSecAttrCanSign, kCFBooleanFalse)
 
-            val error = alloc<CFErrorVar>()
-            val privKey = SecKeyCreateRandomKey(attributes, error.ptr)
+            val privKey = SecKeyCreateRandomKey(attributes, null)
                 ?: throw IllegalStateException("Ошибка генерации RSA ключа")
             CFRelease(attributes)
 
