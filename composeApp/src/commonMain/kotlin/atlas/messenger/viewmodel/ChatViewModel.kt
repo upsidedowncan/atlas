@@ -11,6 +11,7 @@ import atlas.messenger.network.ServerEvent
 import atlas.messenger.network.ConnectionState
 import atlas.messenger.network.WebSocketClient
 import atlas.messenger.audio.createAudioLevelMonitor
+import atlas.messenger.util.currentTimeMs
 import atlas.messenger.session.PersistedMiteChat
 import atlas.messenger.session.PersistedMiteMessage
 import atlas.messenger.session.SessionStore
@@ -1474,5 +1475,3 @@ class ChatViewModel : ViewModel() {
         client.close()
     }
 }
-
-expect fun currentTimeMs(): Long

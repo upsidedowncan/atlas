@@ -56,7 +56,6 @@ kotlin {
             implementation(libs.kmp.emoji.picker)
             implementation(libs.image.picker.kmp)
             implementation(libs.whyoleg.cryptography.core)
-            implementation(libs.kotlinx.datetime)
             implementation(libs.markdown.renderer)
             api(libs.compose.webview)
         }

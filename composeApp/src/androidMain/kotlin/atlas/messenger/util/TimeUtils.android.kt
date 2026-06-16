@@ -1,3 +1,3 @@
-package atlas.messenger.viewmodel
+package atlas.messenger.util
 
 actual fun currentTimeMs(): Long = System.currentTimeMillis()

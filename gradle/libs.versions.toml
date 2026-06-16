@@ -16,7 +16,6 @@ composeWebView = "1.0.0-beta-01"
 junit = "4.13.2"
 kotlin = "2.3.20"
 kotlinx-coroutines = "1.10.2"
-kotlinx-datetime = "0.6.2"
 kotlinx-serialization = "1.8.1"
 ktor = "3.1.3"
 material3 = "1.11.0-alpha04"
@@ -70,7 +69,6 @@ compose-icons-material-symbols = { module = "com.composables:icons-material-symb
 compose-icons-material-symbols-outlined = { module = "com.composables:icons-material-symbols-outlined-cmp", version.ref = "composeIcons" }
 compose-icons-material-symbols-rounded-filled = { module = "com.composables:icons-material-symbols-rounded-filled-cmp", version.ref = "composeIcons" }
 compose-webview = { module = "io.github.kdroidfilter:composewebview", version.ref = "composeWebView" }
-kotlinx-datetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.ref = "kotlinx-datetime" }
 markdown-renderer = { module = "com.mikepenz:multiplatform-markdown-renderer-m3", version.ref = "markdownRenderer" }
 multiplatform-settings = { module = "com.russhwolf:multiplatform-settings", version.ref = "multiplatformSettings" }
 multiplatform-settings-serialization = { module = "com.russhwolf:multiplatform-settings-serialization", version.ref = "multiplatformSettings" }
