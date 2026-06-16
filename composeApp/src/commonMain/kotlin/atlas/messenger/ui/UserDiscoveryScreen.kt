@@ -6,10 +6,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Search
+import com.composables.icons.materialsymbols.MaterialSymbols
+import com.composables.icons.materialsymbols.roundedfilled.Arrow_back
+import com.composables.icons.materialsymbols.roundedfilled.Close
+import com.composables.icons.materialsymbols.roundedfilled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -52,11 +52,11 @@ fun UserDiscoveryScreen(viewModel: ChatViewModel) {
                             textFieldState = textFieldState,
                             onSearch = {},
                             placeholder = { Text("Поиск по имени пользователя...") },
-                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                            leadingIcon = { Icon(MaterialSymbols.RoundedFilled.Search, contentDescription = null) },
                             trailingIcon = {
                                 if (textFieldState.text.isNotEmpty()) {
                                     IconButton(onClick = { textFieldState.setTextAndPlaceCursorAtEnd("") }) {
-                                        Icon(Icons.Default.Close, contentDescription = "Очистить")
+                                        Icon(MaterialSymbols.RoundedFilled.Close, contentDescription = "Очистить")
                                     }
                                 }
                             },
@@ -166,7 +166,7 @@ fun UserDiscoveryScreen(viewModel: ChatViewModel) {
                             IconButton(
                                 onClick = viewModel::closeUserDiscovery,
                             ) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
+                                Icon(MaterialSymbols.RoundedFilled.Arrow_back, contentDescription = "Назад")
                             }
                         },
                         colors = TopAppBarDefaults.topAppBarColors(containerColor = atlasAppBarColor()),
@@ -182,7 +182,7 @@ fun UserDiscoveryScreen(viewModel: ChatViewModel) {
                         title = { Text("Найти людей", fontWeight = FontWeight.SemiBold) },
                         actions = {
                             IconButton(onClick = viewModel::closeUserDiscovery) {
-                                Icon(Icons.Default.Close, contentDescription = "Закрыть")
+                                Icon(MaterialSymbols.RoundedFilled.Close, contentDescription = "Закрыть")
                             }
                         },
                         colors = TopAppBarDefaults.topAppBarColors(containerColor = colors.surface),

@@ -38,6 +38,7 @@ private class JvmSessionStore : SessionStore {
         props["accentColor"] = preferences.accentColor.toString()
         props["colorPreset"] = preferences.colorPreset
         props["contrast"] = preferences.contrast.toString()
+        props["theme"] = preferences.theme
         props["serverUrl"] = preferences.serverUrl
         writeProperties(props)
     }
@@ -51,6 +52,7 @@ private class JvmSessionStore : SessionStore {
                 accentColor = props.getProperty("accentColor")?.toIntOrNull() ?: 0xFF2196F3.toInt(),
                 colorPreset = props.getProperty("colorPreset") ?: "DEFAULT",
                 contrast = props.getProperty("contrast")?.toFloatOrNull() ?: 1.0f,
+                theme = props.getProperty("theme") ?: "SYSTEM",
                 serverUrl = props.getProperty("serverUrl") ?: "ws://127.0.0.1:8080",
             )
         }.getOrNull()

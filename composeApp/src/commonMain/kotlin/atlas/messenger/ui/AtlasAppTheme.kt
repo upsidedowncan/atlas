@@ -52,10 +52,24 @@ private fun hslToColor(h: Float, s: Float, l: Float): Color {
     return Color(r + m, g + m, b + m)
 }
 
-private fun generateColorScheme(accentHex: Int, contrast: Float, preset: ColorPreset): androidx.compose.material3.ColorScheme {
+private fun Color.lerp(target: Color, t: Float): Color = Color(
+    red = this.red + (target.red - this.red) * t,
+    green = this.green + (target.green - this.green) * t,
+    blue = this.blue + (target.blue - this.blue) * t,
+    alpha = this.alpha + (target.alpha - this.alpha) * t,
+)
+
+// converts a user's chosen accent into a ColorScheme family, following the M3
+// Expressive tonal palette. Backgrounds/surfaces/outlines stay neutral so the
+// accent drives the visual energy without overwhelming the screen.
+private fun accentToColorScheme(
+    accentHex: Int,
+    preset: ColorPreset,
+    isDark: Boolean,
+): androidx.compose.material3.ColorScheme {
     val accent = Color(accentHex)
     val (hue, rawSat, rawLit) = accent.toHsl()
-    
+
     val (sat, lit) = when (preset) {
         ColorPreset.DEFAULT -> Pair(rawSat, rawLit)
         ColorPreset.VIBRANT -> Pair(
@@ -66,140 +80,82 @@ private fun generateColorScheme(accentHex: Int, contrast: Float, preset: ColorPr
         ColorPreset.PASTEL -> Pair(rawSat * 0.3f, (rawLit * 1.2f).coerceIn(0.7f, 0.9f))
     }
 
-    val t = (contrast - 1.0f).coerceIn(-0.5f, 0.5f) / 0.5f
+    // primary / secondary / tertiary tonal stops follow the M3 light/dark palette
+    if (!isDark) {
+        // Primary40: 40% tone, Primary90: 90% tone, Primary10: 10% tone
+        val primary = hslToColor(hue, sat, 0.40f)
+        val onPrimary = Color.White
+        val primaryContainer = hslToColor(hue, (sat * 0.3f).coerceAtMost(0.4f), 0.92f)
+        val onPrimaryContainer = hslToColor(hue, sat, 0.10f)
+        // Secondary uses same hue with much lower saturation (M3 secondary is "less colorful")
+        val secondary = hslToColor(hue, (sat * 0.4f).coerceAtMost(0.5f), 0.40f)
+        val onSecondary = Color.White
+        val secondaryContainer = hslToColor(hue, (sat * 0.2f).coerceAtMost(0.3f), 0.92f)
+        val onSecondaryContainer = hslToColor(hue, (sat * 0.4f).coerceAtMost(0.5f), 0.15f)
+        // Tertiary uses a slightly shifted hue (complementary) for M3 trio
+        val tertiaryHue = (hue + 0.0833f) % 1f
+        val tertiary = hslToColor(tertiaryHue, (sat * 0.6f).coerceAtMost(0.6f), 0.45f)
+        val onTertiary = Color.White
+        val tertiaryContainer = hslToColor(tertiaryHue, (sat * 0.3f).coerceAtMost(0.4f), 0.93f)
+        val onTertiaryContainer = hslToColor(tertiaryHue, (sat * 0.6f).coerceAtMost(0.6f), 0.15f)
 
-    fun dark(h: Float, s: Float, l: Float) = hslToColor(h, s, l)
-    fun light(h: Float, s: Float, l: Float) = hslToColor(h, s, l)
-    fun mix(dark: Color, light: Color) = dark.copy(
-        red = dark.red.lerp(light.red, t),
-        green = dark.green.lerp(light.green, t),
-        blue = dark.blue.lerp(light.blue, t),
-    )
+        return lightColorScheme(
+            primary = primary,
+            onPrimary = onPrimary,
+            primaryContainer = primaryContainer,
+            onPrimaryContainer = onPrimaryContainer,
+            secondary = secondary,
+            onSecondary = onSecondary,
+            secondaryContainer = secondaryContainer,
+            onSecondaryContainer = onSecondaryContainer,
+            tertiary = tertiary,
+            onTertiary = onTertiary,
+            tertiaryContainer = tertiaryContainer,
+            onTertiaryContainer = onTertiaryContainer,
+        )
+    } else {
+        // dark mode: invert the tonal stops
+        val primary = hslToColor(hue, (sat * 0.6f).coerceAtMost(0.7f), 0.78f)
+        val onPrimary = hslToColor(hue, (sat * 0.5f).coerceAtMost(0.6f), 0.15f)
+        val primaryContainer = hslToColor(hue, sat, 0.30f)
+        val onPrimaryContainer = hslToColor(hue, (sat * 0.3f).coerceAtMost(0.4f), 0.92f)
+        val secondary = hslToColor(hue, (sat * 0.3f).coerceAtMost(0.4f), 0.80f)
+        val onSecondary = hslToColor(hue, (sat * 0.3f).coerceAtMost(0.4f), 0.18f)
+        val secondaryContainer = hslToColor(hue, (sat * 0.4f).coerceAtMost(0.5f), 0.30f)
+        val onSecondaryContainer = hslToColor(hue, (sat * 0.2f).coerceAtMost(0.3f), 0.92f)
+        val tertiaryHue = (hue + 0.0833f) % 1f
+        val tertiary = hslToColor(tertiaryHue, (sat * 0.5f).coerceAtMost(0.5f), 0.80f)
+        val onTertiary = hslToColor(tertiaryHue, (sat * 0.5f).coerceAtMost(0.5f), 0.18f)
+        val tertiaryContainer = hslToColor(tertiaryHue, (sat * 0.6f).coerceAtMost(0.6f), 0.32f)
+        val onTertiaryContainer = hslToColor(tertiaryHue, (sat * 0.3f).coerceAtMost(0.4f), 0.92f)
 
-    val primaryD = dark(hue, sat * 0.8f, 0.70f)
-    val primaryL = light(hue, sat * 0.9f, 0.40f)
-    val primary = mix(primaryD, primaryL)
-
-    val onPrimaryD = dark(hue, sat * 0.1f, 0.15f)
-    val onPrimaryL = Color.White
-    val onPrimary = mix(onPrimaryD, onPrimaryL)
-
-    val primaryContainerD = dark(hue, sat * 0.4f, 0.20f)
-    val primaryContainerL = light(hue, sat * 0.2f, 0.90f)
-    val primaryContainer = mix(primaryContainerD, primaryContainerL)
-
-    val onPrimaryContainerD = dark(hue, sat * 0.2f, 0.95f)
-    val onPrimaryContainerL = light(hue, sat * 0.6f, 0.10f)
-    val onPrimaryContainer = mix(onPrimaryContainerD, onPrimaryContainerL)
-
-    val secondaryD = dark(hue, sat * 0.3f, 0.7f)
-    val secondaryL = light(hue, sat * 0.2f, 0.4f)
-    val secondary = mix(secondaryD, secondaryL)
-
-    val onSecondaryD = dark(hue, sat * 0.1f, 0.15f)
-    val onSecondaryL = Color.White
-    val onSecondary = mix(onSecondaryD, onSecondaryL)
-
-    val secondaryContainerD = dark(hue, sat * 0.35f, 0.25f)
-    val secondaryContainerL = light(hue, sat * 0.25f, 0.85f)
-    val secondaryContainer = mix(secondaryContainerD, secondaryContainerL)
-
-    val onSecondaryContainerD = dark(hue, sat * 0.25f, 0.85f)
-    val onSecondaryContainerL = light(hue, sat * 0.35f, 0.20f)
-    val onSecondaryContainer = mix(onSecondaryContainerD, onSecondaryContainerL)
-
-    val backgroundD = dark(hue, sat * 0.05f, 0.05f)
-    val backgroundL = Color.White
-    val background = mix(backgroundD, backgroundL)
-
-    val surfaceD = dark(hue, sat * 0.08f, 0.10f)
-    val surfaceL = light(hue, sat * 0.02f, 1.0f)
-    val surface = mix(surfaceD, surfaceL)
-
-    val surfaceVariantD = dark(hue, sat * 0.1f, 0.15f)
-    val surfaceVariantL = light(hue, sat * 0.05f, 0.95f)
-    val surfaceVariant = mix(surfaceVariantD, surfaceVariantL)
-
-    val surfaceContainerD = dark(hue, sat * 0.1f, 0.12f)
-    val surfaceContainerL = light(hue, sat * 0.05f, 0.94f)
-    val surfaceContainer = mix(surfaceContainerD, surfaceContainerL)
-
-    val onSurfaceD = Color.White
-    val onSurfaceL = Color(0xFF1C1B1F)
-    val onSurface = mix(onSurfaceD, onSurfaceL)
-
-    val onSurfaceVariantD = Color(0xFFCAC4D0)
-    val onSurfaceVariantL = Color(0xFF49454F)
-    val onSurfaceVariant = mix(onSurfaceVariantD, onSurfaceVariantL)
-
-    val onBackgroundD = Color.White
-    val onBackgroundL = Color(0xFF1C1B1F)
-    val onBackground = mix(onBackgroundD, onBackgroundL)
-
-    val outlineD = dark(hue, sat * 0.15f, 0.40f)
-    val outlineL = light(hue, sat * 0.12f, 0.60f)
-    val outline = mix(outlineD, outlineL)
-
-    val outlineVariantD = dark(hue, sat * 0.10f, 0.25f)
-    val outlineVariantL = light(hue, sat * 0.08f, 0.80f)
-    val outlineVariant = mix(outlineVariantD, outlineVariantL)
-
-    val surfaceContainerLowD = dark(hue, sat * 0.25f, 0.14f)
-    val surfaceContainerLowL = light(hue, sat * 0.15f, 0.94f)
-    val surfaceContainerLow = mix(surfaceContainerLowD, surfaceContainerLowL)
-
-    val surfaceContainerHighD = dark(hue, sat * 0.35f, 0.20f)
-    val surfaceContainerHighL = light(hue, sat * 0.20f, 0.87f)
-    val surfaceContainerHigh = mix(surfaceContainerHighD, surfaceContainerHighL)
-
-    val errorD = Color(0xFFEF5350)
-    val errorL = Color(0xFFBA1A1A)
-    val error = mix(errorD, errorL)
-
-    val onErrorD = Color.White
-    val onErrorL = Color.White
-    val onError = mix(onErrorD, onErrorL)
-
-    val errorContainerD = dark(0f, 0.6f, 0.25f)
-    val errorContainerL = light(0f, 0.7f, 0.92f)
-    val errorContainer = mix(errorContainerD, errorContainerL)
-
-    val onErrorContainerD = dark(0f, 0.5f, 0.85f)
-    val onErrorContainerL = light(0f, 0.5f, 0.15f)
-    val onErrorContainer = mix(onErrorContainerD, onErrorContainerL)
-
-    return darkColorScheme(
-        primary              = primary,
-        onPrimary            = onPrimary,
-        primaryContainer     = primaryContainer,
-        onPrimaryContainer   = onPrimaryContainer,
-        secondary            = secondary,
-        onSecondary          = onSecondary,
-        secondaryContainer   = secondaryContainer,
-        onSecondaryContainer = onSecondaryContainer,
-        background           = background,
-        onBackground         = onBackground,
-        surface              = surface,
-        onSurface            = onSurface,
-        surfaceVariant       = surfaceVariant,
-        onSurfaceVariant     = onSurfaceVariant,
-        surfaceContainer     = surfaceContainer,
-        surfaceContainerLow  = surfaceContainerLow,
-        surfaceContainerHigh = surfaceContainerHigh,
-        outline              = outline,
-        outlineVariant       = outlineVariant,
-        error                = error,
-        onError              = onError,
-        errorContainer       = errorContainer,
-        onErrorContainer     = onErrorContainer,
-    )
+        return androidx.compose.material3.darkColorScheme(
+            primary = primary,
+            onPrimary = onPrimary,
+            primaryContainer = primaryContainer,
+            onPrimaryContainer = onPrimaryContainer,
+            secondary = secondary,
+            onSecondary = onSecondary,
+            secondaryContainer = secondaryContainer,
+            onSecondaryContainer = onSecondaryContainer,
+            tertiary = tertiary,
+            onTertiary = onTertiary,
+            tertiaryContainer = tertiaryContainer,
+            onTertiaryContainer = onTertiaryContainer,
+        )
+    }
 }
 
-private fun Float.lerp(target: Float, t: Float) = this + (target - this) * t
-
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun AtlasAppTheme(textScale: Float = 1.0f, accentColor: Int = 0xFF2196F3.toInt(), contrast: Float = 1.0f, colorPreset: ColorPreset = ColorPreset.VIBRANT, content: @Composable () -> Unit) {
+fun AtlasAppTheme(
+    textScale: Float = 1.0f,
+    accentColor: Int = 0xFF2196F3.toInt(),
+    contrast: Float = 1.0f,
+    colorPreset: ColorPreset = ColorPreset.VIBRANT,
+    darkTheme: Boolean = false,
+    content: @Composable () -> Unit,
+) {
     // a real bundled sans keeps atlas consistent without the weird broken font from before
     val appFont = FontFamily(
         Font(Res.font.NotoSans_Regular, FontWeight.Normal),
@@ -223,9 +179,29 @@ fun AtlasAppTheme(textScale: Float = 1.0f, accentColor: Int = 0xFF2196F3.toInt()
         )
     }
 
-    MaterialTheme(
-        colorScheme = generateColorScheme(accentColor, contrast, colorPreset),
-        typography  = typography,
+    // start from the official M3 light/dark scheme, then tint the primary/secondary/tertiary
+    // family toward the user's accent. Neutral surfaces stay neutral.
+    val base = if (darkTheme) androidx.compose.material3.darkColorScheme() else androidx.compose.material3.lightColorScheme()
+    val accent = accentToColorScheme(accentColor, colorPreset, isDark = darkTheme)
+    val colorScheme = base.copy(
+        primary = accent.primary,
+        onPrimary = accent.onPrimary,
+        primaryContainer = accent.primaryContainer,
+        onPrimaryContainer = accent.onPrimaryContainer,
+        secondary = accent.secondary,
+        onSecondary = accent.onSecondary,
+        secondaryContainer = accent.secondaryContainer,
+        onSecondaryContainer = accent.onSecondaryContainer,
+        tertiary = accent.tertiary,
+        onTertiary = accent.onTertiary,
+        tertiaryContainer = accent.tertiaryContainer,
+        onTertiaryContainer = accent.onTertiaryContainer,
+    )
+
+    MaterialExpressiveTheme(
+        colorScheme = colorScheme,
+        motionScheme = MotionScheme.expressive(),
+        typography = typography,
         content     = content,
     )
 }

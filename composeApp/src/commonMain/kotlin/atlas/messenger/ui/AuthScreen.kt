@@ -33,18 +33,20 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.Settings
+import com.composables.icons.materialsymbols.MaterialSymbols
+import com.composables.icons.materialsymbols.roundedfilled.Arrow_back
+import com.composables.icons.materialsymbols.roundedfilled.Arrow_forward
+import com.composables.icons.materialsymbols.roundedfilled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularWavyProgressIndicator
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -287,7 +289,7 @@ private fun WelcomeStep(onGetStarted: () -> Unit, colors: ColorScheme) {
     ) {
         Text("Начать", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Spacer(Modifier.width(8.dp))
-        Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null)
+        Icon(MaterialSymbols.RoundedFilled.Arrow_forward, contentDescription = null)
     }
 }
 
@@ -437,7 +439,7 @@ private fun PasswordStep(
         shape = RoundedCornerShape(18.dp),
     ) {
         if (state.isConnecting) {
-            CircularWavyProgressIndicator(
+            LoadingIndicator(
                 modifier = Modifier.size(24.dp),
                 color = colors.onPrimary,
             )
@@ -451,6 +453,7 @@ private fun PasswordStep(
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun AuthTopControls(
     currentStep: AuthStep,
@@ -465,6 +468,7 @@ private fun AuthTopControls(
     ) {
         if (currentStep != AuthStep.WELCOME) {
             IconButton(
+                shapes = IconButtonDefaults.shapes(),
                 onClick = onBack,
                 modifier = Modifier
                     .align(Alignment.TopStart)
@@ -472,7 +476,7 @@ private fun AuthTopControls(
                     .background(colors.surface.copy(alpha = 0.72f)),
             ) {
                 Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    imageVector = MaterialSymbols.RoundedFilled.Arrow_back,
                     contentDescription = "Назад",
                     tint = colors.onSurface,
                 )
@@ -480,6 +484,7 @@ private fun AuthTopControls(
         }
 
         IconButton(
+            shapes = IconButtonDefaults.shapes(),
             onClick = onSettings,
             modifier = Modifier
                 .align(Alignment.TopEnd)
@@ -487,7 +492,7 @@ private fun AuthTopControls(
                 .background(colors.surface.copy(alpha = 0.72f)),
         ) {
             Icon(
-                imageVector = Icons.Default.Settings,
+                imageVector = MaterialSymbols.RoundedFilled.Settings,
                 contentDescription = "Настройки",
                 tint = colors.onSurface,
             )
@@ -500,7 +505,7 @@ private fun AuthTopControls(
 private fun ConnectingState(colors: ColorScheme) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            CircularWavyProgressIndicator(
+            LoadingIndicator(
                 modifier = Modifier.size(64.dp),
                 color = colors.primary,
             )

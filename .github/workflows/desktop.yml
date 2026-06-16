@@ -1,0 +1,88 @@
+name: Desktop
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    paths:
+      - 'composeApp/**'
+      - 'gradle/**'
+      - 'gradle.properties'
+      - 'gradle/libs.versions.toml'
+      - '.github/workflows/desktop.yml'
+  workflow_dispatch:
+  workflow_call:
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type == 'branch' }}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.os_name }}
+    runs-on: ${{ matrix.runs_on }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os_name: Linux
+            runs_on: ubuntu-latest
+            artifact_name: desktop-deb-Linux
+            artifact_path: composeApp/build/compose/binaries/main/deb/*.deb
+          - os_name: Windows
+            runs_on: windows-latest
+            artifact_name: desktop-msi-Windows
+            artifact_path: composeApp/build/compose/binaries/main/msi/*.msi
+          - os_name: macOS
+            runs_on: macos-latest
+            artifact_name: desktop-dmg-macOS
+            artifact_path: composeApp/build/compose/binaries/main/dmg/*.dmg
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-desktop-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties', '**/libs.versions.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-desktop-
+            ${{ runner.os }}-gradle-
+
+      - name: Grant execute permission for gradlew
+        if: runner.os != 'Windows'
+        run: chmod +x gradlew
+
+      - name: Build ${{ matrix.os_name }} package
+        shell: bash
+        run: |
+          if [ "${{ matrix.os_name }}" = "Linux" ]; then
+            ./gradlew :composeApp:packageDeb --no-daemon --stacktrace
+          elif [ "${{ matrix.os_name }}" = "Windows" ]; then
+            ./gradlew :composeApp:packageMsi --no-daemon --stacktrace
+          elif [ "${{ matrix.os_name }}" = "macOS" ]; then
+            ./gradlew :composeApp:packageDmg --no-daemon --stacktrace
+          fi
+
+      - name: Upload ${{ matrix.os_name }} package
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_path }}
+          if-no-files-found: error
+          retention-days: 14

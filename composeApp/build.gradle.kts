@@ -60,7 +60,9 @@ kotlin {
             implementation(libs.kotlinx.serializationJson)
             implementation(libs.kotlinx.coroutinesCore)
 
-            implementation(compose.materialIconsExtended)
+            implementation("com.composables:icons-material-symbols-cmp:2.2.1")
+            implementation("com.composables:icons-material-symbols-outlined-cmp:2.2.1")
+            implementation("com.composables:icons-material-symbols-rounded-filled-cmp:2.2.1")
             implementation(libs.coil.compose)
             implementation(libs.coil.network.ktor)
             implementation(libs.kmp.emoji.picker)

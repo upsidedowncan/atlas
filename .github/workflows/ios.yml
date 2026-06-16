@@ -1,0 +1,68 @@
+name: iOS
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    paths:
+      - 'composeApp/**'
+      - 'gradle/**'
+      - 'gradle.properties'
+      - 'gradle/libs.versions.toml'
+      - '.github/workflows/ios.yml'
+  workflow_dispatch:
+  workflow_call:
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type == 'branch' }}
+
+permissions:
+  contents: read
+
+jobs:
+  simulator:
+    name: Simulator framework
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-ios-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties', '**/libs.versions.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-ios-
+            ${{ runner.os }}-gradle-
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build iOS simulator framework
+        run: ./gradlew :composeApp:linkDebugFrameworkIosSimulatorArm64 --no-daemon --stacktrace
+
+      - name: Archive framework
+        run: |
+          cd composeApp/build/bin/iosSimulatorArm64/debugFramework
+          zip -r ComposeApp-iosSimulatorArm64-debug.zip ComposeApp.framework
+
+      - name: Upload framework
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-framework
+          path: composeApp/build/bin/iosSimulatorArm64/debugFramework/ComposeApp-iosSimulatorArm64-debug.zip
+          if-no-files-found: error
+          retention-days: 14

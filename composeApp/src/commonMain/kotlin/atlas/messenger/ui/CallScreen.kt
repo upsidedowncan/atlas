@@ -4,12 +4,12 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.VolumeOff
-import androidx.compose.material.icons.automirrored.filled.VolumeUp
-import androidx.compose.material.icons.filled.CallEnd
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.MicOff
+import com.composables.icons.materialsymbols.MaterialSymbols
+import com.composables.icons.materialsymbols.roundedfilled.Call_end
+import com.composables.icons.materialsymbols.roundedfilled.Mic
+import com.composables.icons.materialsymbols.roundedfilled.Mic_off
+import com.composables.icons.materialsymbols.roundedfilled.Volume_off
+import com.composables.icons.materialsymbols.roundedfilled.Volume_up
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -170,7 +170,7 @@ fun CallScreen(viewModel: ChatViewModel) {
                 FloatingToolbarDefaults.VibrantFloatingActionButton(
                     onClick = viewModel::endCall,
                 ) {
-                    Icon(Icons.Default.CallEnd, contentDescription = "Завершить звонок")
+                    Icon(MaterialSymbols.RoundedFilled.Call_end, contentDescription = "Завершить звонок")
                 }
             },
             modifier = Modifier
@@ -181,16 +181,16 @@ fun CallScreen(viewModel: ChatViewModel) {
         ) {
             IconButton(onClick = { isMuted = !isMuted }) {
                 Icon(
-                    imageVector = if (isMuted) Icons.Default.MicOff else Icons.Default.Mic,
+                    imageVector = if (isMuted) MaterialSymbols.RoundedFilled.Mic_off else MaterialSymbols.RoundedFilled.Mic,
                     contentDescription = "Отключить микрофон",
                 )
             }
             IconButton(onClick = { isSpeakerOn = !isSpeakerOn }) {
                 Icon(
                     imageVector = if (isSpeakerOn)
-                        Icons.AutoMirrored.Filled.VolumeUp
+                        MaterialSymbols.RoundedFilled.Volume_up
                     else
-                        Icons.AutoMirrored.Filled.VolumeOff,
+                        MaterialSymbols.RoundedFilled.Volume_off,
                     contentDescription = "Динамик",
                 )
             }

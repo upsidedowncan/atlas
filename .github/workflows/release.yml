@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    name: Android release
+    uses: ./.github/workflows/android.yml
+    secrets: inherit
+
+  ios:
+    name: iOS release
+    uses: ./.github/workflows/ios.yml
+    secrets: inherit
+
+  desktop:
+    name: Desktop release
+    uses: ./.github/workflows/desktop.yml
+    secrets: inherit
+
+  publish:
+    name: Publish GitHub release
+    needs: [android, ios, desktop]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/**/*.apk
+            artifacts/**/*.zip
+            artifacts/**/*.deb
+            artifacts/**/*.msi
+            artifacts/**/*.dmg
+          fail_on_unmatched_files: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

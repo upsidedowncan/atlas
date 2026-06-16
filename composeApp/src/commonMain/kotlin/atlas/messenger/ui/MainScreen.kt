@@ -1,5 +1,6 @@
 package atlas.messenger.ui
 
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.*
 import kotlin.math.PI
 import kotlin.math.sin
@@ -33,13 +34,48 @@ import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.Fingerprint
-import androidx.compose.material.icons.automirrored.outlined.Logout
-import androidx.compose.material.icons.rounded.Mood
-import androidx.compose.material.icons.rounded.Send
+import com.composables.icons.materialsymbols.MaterialSymbols
+import com.composables.icons.materialsymbols.roundedfilled.Add
+import com.composables.icons.materialsymbols.roundedfilled.Android
+import com.composables.icons.materialsymbols.roundedfilled.Archive
+import com.composables.icons.materialsymbols.roundedfilled.Arrow_back
+import com.composables.icons.materialsymbols.roundedfilled.Attach_file
+import com.composables.icons.materialsymbols.roundedfilled.Auto_awesome
+import com.composables.icons.materialsymbols.roundedfilled.Bolt
+import com.composables.icons.materialsymbols.roundedfilled.Call
+import com.composables.icons.materialsymbols.roundedfilled.Chat
+import com.composables.icons.materialsymbols.roundedfilled.Chat_bubble
+import com.composables.icons.materialsymbols.roundedfilled.Check
+import com.composables.icons.materialsymbols.roundedfilled.Check_circle
+import com.composables.icons.materialsymbols.roundedfilled.Close
+import com.composables.icons.materialsymbols.roundedfilled.Cloud
+import com.composables.icons.materialsymbols.roundedfilled.Content_copy
+import com.composables.icons.materialsymbols.roundedfilled.Dark_mode
+import com.composables.icons.materialsymbols.roundedfilled.Delete
+import com.composables.icons.materialsymbols.roundedfilled.Edit
+import com.composables.icons.materialsymbols.roundedfilled.Expand_less
+import com.composables.icons.materialsymbols.roundedfilled.Expand_more
+import com.composables.icons.materialsymbols.roundedfilled.Fingerprint
+import com.composables.icons.materialsymbols.roundedfilled.Keyboard_arrow_down
+import com.composables.icons.materialsymbols.roundedfilled.Keyboard_arrow_right
+import com.composables.icons.materialsymbols.roundedfilled.Keyboard_arrow_up
+import com.composables.icons.materialsymbols.roundedfilled.Light_mode
+import com.composables.icons.materialsymbols.roundedfilled.Lock
+import com.composables.icons.materialsymbols.roundedfilled.Logout
+import com.composables.icons.materialsymbols.roundedfilled.Mic
+import com.composables.icons.materialsymbols.roundedfilled.Mood
+import com.composables.icons.materialsymbols.roundedfilled.Open_in_full
+import com.composables.icons.materialsymbols.roundedfilled.Palette
+import com.composables.icons.materialsymbols.roundedfilled.Phone_android
+import com.composables.icons.materialsymbols.roundedfilled.Photo_camera
+import com.composables.icons.materialsymbols.roundedfilled.Public
+import com.composables.icons.materialsymbols.roundedfilled.Search
+import com.composables.icons.materialsymbols.roundedfilled.Send
+import com.composables.icons.materialsymbols.roundedfilled.Settings
+import com.composables.icons.materialsymbols.roundedfilled.Speed
+import com.composables.icons.materialsymbols.roundedfilled.Star
+import com.composables.icons.materialsymbols.roundedfilled.Unarchive
+import com.composables.icons.materialsymbols.roundedfilled.Verified
 import androidx.compose.material3.*
 import androidx.compose.material3.carousel.HorizontalMultiBrowseCarousel
 import androidx.compose.material3.carousel.rememberCarouselState
@@ -51,6 +87,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.luminance
@@ -59,9 +96,13 @@ import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -83,6 +124,7 @@ import io.github.ismoy.imagepickerkmp.domain.models.MimeType
 import io.github.ismoy.imagepickerkmp.presentation.ui.components.GalleryPickerLauncher
 import me.digitalby.emojipicker.EmojiPicker
 import me.digitalby.emojipicker.rememberEmojiPickerState
+import atlas.messenger.viewmodel.AppTheme
 import atlas.messenger.viewmodel.ColorPreset
 import androidx.compose.ui.text.font.FontStyle
 import io.github.kdroidfilter.webview.web.WebView
@@ -119,7 +161,7 @@ private fun AvatarBox(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun ChatTile(
     username: String,
@@ -130,7 +172,7 @@ internal fun ChatTile(
     unreadCount: Int = 0,
     modifier: Modifier = Modifier,
     selected: Boolean = false,
-    onLongClick: (() -> Unit)? = null,
+    onLongClick: ((Offset) -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
@@ -143,10 +185,28 @@ internal fun ChatTile(
         modifier = modifier
             .fillMaxWidth()
             .background(backgroundColor)
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = onLongClick,
-            )
+            .pointerInput(onLongClick) {
+                detectTapGestures(
+                    onTap = { onClick() },
+                    onLongPress = if (onLongClick != null) {
+                        { offset: Offset -> onLongClick.invoke(offset) }
+                    } else null,
+                )
+            }
+            .pointerInput(onLongClick) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        if (event.type == PointerEventType.Press &&
+                            event.buttons.isSecondaryPressed &&
+                            onLongClick != null
+                        ) {
+                            onLongClick.invoke(event.changes.first().position)
+                            event.changes.forEach { it.consume() }
+                        }
+                    }
+                }
+            }
             .padding(horizontal = 16.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -331,6 +391,7 @@ private fun MobileMainScreen(viewModel: ChatViewModel) {
     Scaffold(
         bottomBar = {
             val colors = MaterialTheme.colorScheme
+            val motionScheme = MaterialTheme.motionScheme
             NavigationBar(
                 containerColor = colors.surfaceContainer,
                 contentColor = colors.onSurface,
@@ -342,33 +403,35 @@ private fun MobileMainScreen(viewModel: ChatViewModel) {
                             BadgedBox(
                                 badge = { CircularUnreadBadge(totalUnread) },
                             ) {
-                                Icon(Icons.Default.Chat, contentDescription = null)
+                                Icon(MaterialSymbols.RoundedFilled.Chat, contentDescription = null)
                             }
                         },
                         label = { Text("Чаты") },
+                        alwaysShowLabel = false,
                         modifier = Modifier,
                         colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = colors.onPrimaryContainer,
-                        selectedTextColor = colors.primary,
-                        unselectedIconColor = colors.onSurfaceVariant,
-                        unselectedTextColor = colors.onSurfaceVariant,
-                        indicatorColor = colors.primaryContainer,
-                    ),
-                )
+                            selectedIconColor = colors.onSecondaryContainer,
+                            selectedTextColor = colors.secondary,
+                            unselectedIconColor = colors.onSurfaceVariant,
+                            unselectedTextColor = colors.onSurfaceVariant,
+                            indicatorColor = colors.secondaryContainer,
+                        ),
+                    )
                     NavigationBarItem(
                         selected = selectedTab == 1,
                         onClick = { selectedTab = 1 },
-                        icon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                        icon = { Icon(MaterialSymbols.RoundedFilled.Settings, contentDescription = null) },
                         label = { Text("Настройки") },
+                        alwaysShowLabel = false,
                         modifier = Modifier,
                         colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = colors.onPrimaryContainer,
-                        selectedTextColor = colors.primary,
-                        unselectedIconColor = colors.onSurfaceVariant,
-                        unselectedTextColor = colors.onSurfaceVariant,
-                        indicatorColor = colors.primaryContainer,
-                    ),
-                )
+                            selectedIconColor = colors.onSecondaryContainer,
+                            selectedTextColor = colors.secondary,
+                            unselectedIconColor = colors.onSurfaceVariant,
+                            unselectedTextColor = colors.onSurfaceVariant,
+                            indicatorColor = colors.secondaryContainer,
+                        ),
+                    )
             }
         },
     ) { padding ->
@@ -437,7 +500,7 @@ private fun MobileConversationListTab(viewModel: ChatViewModel) {
                         ),
                     ) {
                         Icon(
-                            imageVector = if (checkedProgress > 0.5f) Icons.Default.Close else Icons.Default.Add,
+                            imageVector = if (checkedProgress > 0.5f) MaterialSymbols.RoundedFilled.Close else MaterialSymbols.RoundedFilled.Add,
                             contentDescription = "Новый чат",
                             modifier = Modifier.size(24.dp),
                             tint = fabContentColor,
@@ -451,7 +514,7 @@ private fun MobileConversationListTab(viewModel: ChatViewModel) {
                         viewModel.openMiteChats()
                     },
                     text = { Text("Чат с Mite") },
-                    icon = { Icon(Icons.Default.Android, contentDescription = null) },
+                    icon = { Icon(MaterialSymbols.RoundedFilled.Android, contentDescription = null) },
                     modifier = Modifier,
                 )
                 FloatingActionButtonMenuItem(
@@ -460,7 +523,7 @@ private fun MobileConversationListTab(viewModel: ChatViewModel) {
                         viewModel.openUserDiscovery()
                     },
                     text = { Text("Найти людей") },
-                    icon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    icon = { Icon(MaterialSymbols.RoundedFilled.Search, contentDescription = null) },
                     modifier = Modifier,
                 )
             }
@@ -497,7 +560,7 @@ private fun MobileSearchDialog(
                         onClick = onDismiss,
                         modifier = Modifier
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
+                        Icon(MaterialSymbols.RoundedFilled.Arrow_back, contentDescription = "Назад")
                     }
                     BasicTextField(
                         state = searchText,
@@ -654,9 +717,9 @@ private fun NavRail(viewModel: ChatViewModel) {
         .sum()
 
     val navRailColors = NavigationRailItemDefaults.colors(
-        selectedIconColor = colors.onPrimaryContainer,
+        selectedIconColor = colors.onSecondaryContainer,
         selectedTextColor = colors.onSurface,
-        indicatorColor = colors.primaryContainer,
+        indicatorColor = colors.secondaryContainer,
         unselectedIconColor = colors.onSurfaceVariant,
         unselectedTextColor = colors.onSurfaceVariant,
     )
@@ -680,7 +743,7 @@ private fun NavRail(viewModel: ChatViewModel) {
                 BadgedBox(
                     badge = { CircularUnreadBadge(totalUnread) },
                 ) {
-                    Icon(Icons.Default.ChatBubble, contentDescription = "Чаты")
+                    Icon(MaterialSymbols.RoundedFilled.Chat_bubble, contentDescription = "Чаты")
                 }
             },
             label = { Text("Чаты") },
@@ -691,7 +754,7 @@ private fun NavRail(viewModel: ChatViewModel) {
         NavigationRailItem(
             selected = state.showSettings,
             onClick = viewModel::openSettings,
-            icon = { Icon(Icons.Default.Settings, contentDescription = "Настройки") },
+            icon = { Icon(MaterialSymbols.RoundedFilled.Settings, contentDescription = "Настройки") },
             label = { Text("Настройки") },
             modifier = Modifier,
             colors = navRailColors,
@@ -700,7 +763,7 @@ private fun NavRail(viewModel: ChatViewModel) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun ConversationList(
     viewModel: ChatViewModel,
@@ -725,15 +788,21 @@ private fun ConversationList(
                 title = { Text(if (archived) "Архив" else "Atlas", fontWeight = FontWeight.SemiBold) },
                 navigationIcon = {
                     if (archived) {
-                        IconButton(onClick = viewModel::closeArchive) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
+                        IconButton(
+                            shapes = IconButtonDefaults.shapes(),
+                            onClick = viewModel::closeArchive,
+                        ) {
+                            Icon(MaterialSymbols.RoundedFilled.Arrow_back, contentDescription = "Назад")
                         }
                     }
                 },
                 actions = {
                     if (!archived) {
-                        IconButton(onClick = viewModel::openUserDiscovery) {
-                            Icon(Icons.Default.Search, contentDescription = "Поиск")
+                        IconButton(
+                            shapes = IconButtonDefaults.shapes(),
+                            onClick = viewModel::openUserDiscovery,
+                        ) {
+                            Icon(MaterialSymbols.RoundedFilled.Search, contentDescription = "Поиск")
                         }
                     }
                 },
@@ -775,7 +844,7 @@ private fun ConversationList(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = Icons.Filled.Chat,
+                            imageVector = MaterialSymbols.RoundedFilled.Chat,
                             contentDescription = null,
                             modifier = Modifier.size(40.dp),
                             tint = colors.onPrimaryContainer
@@ -805,7 +874,7 @@ private fun ConversationList(
                             onClick = { viewModel.openUserDiscovery() },
                             shape = RoundedCornerShape(16.dp)
                         ) {
-                            Icon(Icons.Filled.Search, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Icon(MaterialSymbols.RoundedFilled.Search, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
                             Text("Найти пользователей")
                         }
@@ -862,7 +931,7 @@ private fun ConversationList(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun ArchiveScreen(
     viewModel: ChatViewModel,
@@ -874,18 +943,21 @@ private fun ArchiveScreen(
             title = { Text("Архив", fontWeight = FontWeight.SemiBold) },
             navigationIcon = {
                 if (showBackButton && onBack != null) {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
+                    IconButton(
+                        shapes = IconButtonDefaults.shapes(),
+                        onClick = onBack,
+                    ) {
+                        Icon(MaterialSymbols.RoundedFilled.Arrow_back, contentDescription = "Назад")
                     }
                 }
             },
-            colors = TopAppBarDefaults.topAppBarColors(containerColor = atlasAppBarColor()),
-        )
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = atlasAppBarColor()),
+            )
         ConversationList(viewModel = viewModel, archived = true)
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun MiteChatsScreen(
     viewModel: ChatViewModel,
@@ -900,8 +972,11 @@ private fun MiteChatsScreen(
                 title = { Text("Чат с Mite", fontWeight = FontWeight.SemiBold) },
                 navigationIcon = {
                     if ((showBackButton || embeddedInSidebar) && onBack != null) {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
+                        IconButton(
+                            shapes = IconButtonDefaults.shapes(),
+                            onClick = onBack,
+                        ) {
+                            Icon(MaterialSymbols.RoundedFilled.Arrow_back, contentDescription = "Назад")
                         }
                     }
                 },
@@ -937,12 +1012,12 @@ private fun MiteChatsScreen(
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary,
         ) {
-            Icon(Icons.Default.Add, contentDescription = "Новый чат")
+            Icon(MaterialSymbols.RoundedFilled.Add, contentDescription = "Новый чат")
         }
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun MiteChatListTile(
     chat: MiteChat,
@@ -950,6 +1025,7 @@ private fun MiteChatListTile(
     onDelete: () -> Unit,
 ) {
     val preview = chat.messages.lastOrNull { it.text.isNotBlank() }?.text ?: "Нет сообщений"
+    val density = LocalDensity.current
     var menuExpanded by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
 
@@ -977,19 +1053,25 @@ private fun MiteChatListTile(
     }
 
     Box(modifier = Modifier.fillMaxWidth()) {
+        var pressOffset by remember { mutableStateOf(Offset.Zero) }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .combinedClickable(
-                    onClick = onClick,
-                    onLongClick = { menuExpanded = true },
-                    onLongClickLabel = "Удалить чат",
-                )
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onTap = { onClick() },
+                        onLongPress = { offset ->
+                            pressOffset = offset
+                            menuExpanded = true
+                        },
+                    )
+                }
                 .pointerInput(Unit) {
                     awaitPointerEventScope {
                         while (true) {
                             val event = awaitPointerEvent()
                             if (event.type == PointerEventType.Press && event.buttons.isSecondaryPressed) {
+                                pressOffset = event.changes.first().position
                                 menuExpanded = true
                                 event.changes.forEach { it.consume() }
                             }
@@ -1007,7 +1089,7 @@ private fun MiteChatListTile(
                     .background(MaterialTheme.colorScheme.primaryContainer),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Default.Android, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(24.dp))
+                Icon(MaterialSymbols.RoundedFilled.Android, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(24.dp))
             }
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1024,23 +1106,34 @@ private fun MiteChatListTile(
                 Text(preview, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
             }
         }
-        DropdownMenu(
+        DropdownMenuPopup(
             expanded = menuExpanded,
             onDismissRequest = { menuExpanded = false },
-            modifier = Modifier.align(Alignment.TopEnd),
+            offset = DpOffset(with(density) { pressOffset.x.toDp() }, with(density) { pressOffset.y.toDp() }),
         ) {
-            DropdownMenuItem(
-                text = { Text("Удалить чат") },
-                leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
-                onClick = {
-                    menuExpanded = false
-                    showDeleteDialog = true
-                },
-                colors = MenuDefaults.itemColors(
-                    textColor = MaterialTheme.colorScheme.error,
-                    leadingIconColor = MaterialTheme.colorScheme.error,
-                ),
-            )
+            DropdownMenuGroup(
+                shapes = MenuDefaults.groupShape(0, 1),
+            ) {
+                DropdownMenuItem(
+                    text = { Text("Удалить чат") },
+                    shape = MenuDefaults.leadingItemShape,
+                    leadingIcon = {
+                        Icon(
+                            MaterialSymbols.RoundedFilled.Delete,
+                            modifier = Modifier.size(MenuDefaults.LeadingIconSize),
+                            contentDescription = null,
+                        )
+                    },
+                    onClick = {
+                        menuExpanded = false
+                        showDeleteDialog = true
+                    },
+                    colors = MenuDefaults.itemColors(
+                        textColor = MaterialTheme.colorScheme.error,
+                        leadingIconColor = MaterialTheme.colorScheme.error,
+                    ),
+                )
+            }
         }
     }
 }
@@ -1066,7 +1159,7 @@ private fun MiteEntryTile(
             contentAlignment = Alignment.Center,
         ) {
             Icon(
-                Icons.Default.Android,
+                MaterialSymbols.RoundedFilled.Android,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onPrimaryContainer,
                 modifier = Modifier.size(24.dp),
@@ -1112,7 +1205,7 @@ private fun ArchiveEntryTile(
             contentAlignment = Alignment.Center,
         ) {
             Icon(
-                Icons.Default.Archive,
+                MaterialSymbols.RoundedFilled.Archive,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSecondaryContainer,
                 modifier = Modifier.size(24.dp),
@@ -1140,6 +1233,7 @@ private fun ArchiveEntryTile(
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun ConversationItem(
     peer: String,
@@ -1156,6 +1250,7 @@ private fun ConversationItem(
 ) {
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showContextMenu by remember { mutableStateOf(false) }
+    val density = LocalDensity.current
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
             if (value != SwipeToDismissBoxValue.Settled) {
@@ -1208,7 +1303,7 @@ private fun ConversationItem(
                 contentAlignment = alignment,
             ) {
                 Icon(
-                    if (archived) Icons.Default.Unarchive else Icons.Default.Archive,
+                    if (archived) MaterialSymbols.RoundedFilled.Unarchive else MaterialSymbols.RoundedFilled.Archive,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onPrimary,
                 )
@@ -1217,6 +1312,7 @@ private fun ConversationItem(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Box {
+            var pressOffset by remember { mutableStateOf(Offset.Zero) }
             ChatTile(
                 username = peer,
                 displayName = displayName,
@@ -1228,37 +1324,62 @@ private fun ConversationItem(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 1.dp),
-                onLongClick = { showContextMenu = true },
+                onLongClick = { offset ->
+                    pressOffset = offset
+                    showContextMenu = true
+                },
                 onClick = onClick,
             )
 
-            DropdownMenu(
+            DropdownMenuPopup(
                 expanded = showContextMenu,
                 onDismissRequest = { showContextMenu = false },
+                offset = DpOffset(with(density) { pressOffset.x.toDp() }, with(density) { pressOffset.y.toDp() }),
             ) {
-                DropdownMenuItem(
-                    text = { Text(if (archived) "Вернуть из архива" else "В архив") },
-                    onClick = {
-                        showContextMenu = false
-                        onArchiveToggle()
-                    }
-                )
-                DropdownMenuItem(
-                    text = { Text("Удалить чат") },
-                    onClick = {
-                        showContextMenu = false
-                        showDeleteDialog = true
-                    },
-                    leadingIcon = {
-                        Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-                    }
-                )
+                DropdownMenuGroup(
+                    shapes = MenuDefaults.groupShape(0, 1),
+                ) {
+                    DropdownMenuItem(
+                        text = { Text(if (archived) "Вернуть из архива" else "В архив") },
+                        shape = MenuDefaults.leadingItemShape,
+                        leadingIcon = {
+                            Icon(
+                                if (archived) MaterialSymbols.RoundedFilled.Unarchive else MaterialSymbols.RoundedFilled.Archive,
+                                modifier = Modifier.size(MenuDefaults.LeadingIconSize),
+                                contentDescription = null,
+                            )
+                        },
+                        onClick = {
+                            showContextMenu = false
+                            onArchiveToggle()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Удалить чат") },
+                        shape = MenuDefaults.trailingItemShape,
+                        leadingIcon = {
+                            Icon(
+                                MaterialSymbols.RoundedFilled.Delete,
+                                modifier = Modifier.size(MenuDefaults.LeadingIconSize),
+                                contentDescription = null,
+                            )
+                        },
+                        onClick = {
+                            showContextMenu = false
+                            showDeleteDialog = true
+                        },
+                        colors = MenuDefaults.itemColors(
+                            textColor = MaterialTheme.colorScheme.error,
+                            leadingIconColor = MaterialTheme.colorScheme.error,
+                        )
+                    )
+                }
             }
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun ChatPane(
     viewModel: ChatViewModel,
@@ -1308,6 +1429,7 @@ private fun ChatPane(
     }
 
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
+        val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
         Column(modifier = Modifier.fillMaxSize()) {
             TopAppBar(
                 title = {
@@ -1329,24 +1451,33 @@ private fun ChatPane(
                 },
                 navigationIcon = {
                     if (showBackButton && onBack != null) {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
+                        IconButton(
+                            shapes = IconButtonDefaults.shapes(),
+                            onClick = onBack,
+                        ) {
+                            Icon(MaterialSymbols.RoundedFilled.Arrow_back, contentDescription = "Назад")
                         }
                     }
                 },
                 actions = {
-                    IconButton(onClick = {
-                        if (state.showChatSearch) viewModel.closeChatSearch() else viewModel.openChatSearch()
-                    }) {
+                    IconButton(
+                        shapes = IconButtonDefaults.shapes(),
+                        onClick = {
+                            if (state.showChatSearch) viewModel.closeChatSearch() else viewModel.openChatSearch()
+                        },
+                    ) {
                         Icon(
-                            if (state.showChatSearch) Icons.Default.Close else Icons.Default.Search,
+                            if (state.showChatSearch) MaterialSymbols.RoundedFilled.Close else MaterialSymbols.RoundedFilled.Search,
                             contentDescription = if (state.showChatSearch) "Закрыть поиск" else "Поиск по чату",
                         )
                     }
                     if (!isEveryone) {
-                        IconButton(onClick = { viewModel.startCall(peer) }) {
+                        IconButton(
+                            shapes = IconButtonDefaults.shapes(),
+                            onClick = { viewModel.startCall(peer) },
+                        ) {
                             Icon(
-                                Icons.Default.Call,
+                                MaterialSymbols.RoundedFilled.Call,
                                 contentDescription = "Звонок",
                                 tint = MaterialTheme.colorScheme.primary
                             )
@@ -1389,7 +1520,7 @@ private fun ChatPane(
                                         textFieldState = chatSearchFieldState,
                                         onSearch = {},
                                         placeholder = { Text("Поиск сообщений…") },
-                                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                                        leadingIcon = { Icon(MaterialSymbols.RoundedFilled.Search, contentDescription = null) },
                                         trailingIcon = {
                                             Row(verticalAlignment = Alignment.CenterVertically) {
                                                 Text(
@@ -1399,10 +1530,10 @@ private fun ChatPane(
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 )
                                                 IconButton(onClick = viewModel::prevChatSearchMatch, enabled = state.chatSearchMatchIds.isNotEmpty()) {
-                                                    Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Предыдущее совпадение")
+                                                    Icon(MaterialSymbols.RoundedFilled.Keyboard_arrow_up, contentDescription = "Предыдущее совпадение")
                                                 }
                                                 IconButton(onClick = viewModel::nextChatSearchMatch, enabled = state.chatSearchMatchIds.isNotEmpty()) {
-                                                    Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Следующее совпадение")
+                                                    Icon(MaterialSymbols.RoundedFilled.Keyboard_arrow_down, contentDescription = "Следующее совпадение")
                                                 }
                                             }
                                         },
@@ -1416,8 +1547,11 @@ private fun ChatPane(
 
                         LazyColumn(
                             state = listState,
-                            modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
-                            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 72.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(horizontal = 12.dp)
+                                .nestedScroll(scrollBehavior.nestedScrollConnection),
+                            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
                             verticalArrangement = Arrangement.spacedBy(2.dp),
                         ) {
                             item {
@@ -1430,7 +1564,7 @@ private fun ChatPane(
                                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                                     ) {
                                         Icon(
-                                            Icons.Default.Lock,
+                                            MaterialSymbols.RoundedFilled.Lock,
                                             contentDescription = null,
                                             tint = MaterialTheme.colorScheme.primary,
                                             modifier = Modifier.size(10.dp)
@@ -1489,24 +1623,24 @@ private fun ChatPane(
                     }
                 }
             }
-        }
 
-        ExpressiveMessageInput(
-            text = state.inputText,
-            onTextChange = viewModel::onInputTextChanged,
-            onSendClick = viewModel::sendMessage,
-            onAttachClick = {},
-            onVoiceClick = {},
-            showEmojiPicker = state.showEmojiPicker,
-            onEmojiToggle = viewModel::toggleEmojiPicker,
-            onEmojiSelected = viewModel::insertEmoji,
-            maxLength = if (state.atlasXSubscribed) 20_000 else 2_000,
-            onLimitExceeded = viewModel::openAtlasXScreen,
-            modifier = Modifier.align(Alignment.BottomCenter),
-        )
+            ExpressiveMessageInput(
+                text = state.inputText,
+                onTextChange = viewModel::onInputTextChanged,
+                onSendClick = viewModel::sendMessage,
+                onAttachClick = {},
+                onVoiceClick = {},
+                showEmojiPicker = state.showEmojiPicker,
+                onEmojiToggle = viewModel::toggleEmojiPicker,
+                onEmojiSelected = viewModel::insertEmoji,
+                maxLength = if (state.atlasXSubscribed) 20_000 else 2_000,
+                onLimitExceeded = viewModel::openAtlasXScreen,
+            )
+        }
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun MiteChatPane(
     viewModel: ChatViewModel,
@@ -1536,8 +1670,11 @@ private fun MiteChatPane(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     if (showBackButton && onBack != null) {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
+                        IconButton(
+                            shapes = IconButtonDefaults.shapes(),
+                            onClick = onBack,
+                        ) {
+                            Icon(MaterialSymbols.RoundedFilled.Arrow_back, contentDescription = "Назад")
                         }
                     }
                     Box(
@@ -1545,7 +1682,7 @@ private fun MiteChatPane(
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
-                            Icons.Default.Android,
+                            MaterialSymbols.RoundedFilled.Android,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onPrimaryContainer,
                         )
@@ -1575,7 +1712,7 @@ private fun MiteChatPane(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
-                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 72.dp),
+                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 if (messages.isEmpty()) {
@@ -1589,7 +1726,7 @@ private fun MiteChatPane(
                                 verticalArrangement = Arrangement.spacedBy(12.dp),
                             ) {
                                 Icon(
-                                    Icons.Default.Android,
+                                    MaterialSymbols.RoundedFilled.Android,
                                     contentDescription = null,
                                     modifier = Modifier.size(48.dp),
                                     tint = MaterialTheme.colorScheme.primary,
@@ -1645,21 +1782,20 @@ private fun MiteChatPane(
                     }
                 }
             }
-        }
 
-        ExpressiveMessageInput(
-            text = state.miteInputText,
-            onTextChange = viewModel::onMiteInputTextChanged,
-            onSendClick = viewModel::sendMiteMessage,
-            onAttachClick = {},
-            onVoiceClick = {},
-            showEmojiPicker = false,
-            onEmojiToggle = {},
-            onEmojiSelected = {},
-            maxLength = if (state.atlasXSubscribed) 20_000 else 2_000,
-            onLimitExceeded = viewModel::openAtlasXScreen,
-            modifier = Modifier.align(Alignment.BottomCenter),
-        )
+            ExpressiveMessageInput(
+                text = state.miteInputText,
+                onTextChange = viewModel::onMiteInputTextChanged,
+                onSendClick = viewModel::sendMiteMessage,
+                onAttachClick = {},
+                onVoiceClick = {},
+                showEmojiPicker = false,
+                onEmojiToggle = {},
+                onEmojiSelected = {},
+                maxLength = if (state.atlasXSubscribed) 20_000 else 2_000,
+                onLimitExceeded = viewModel::openAtlasXScreen,
+            )
+        }
     }
 }
 
@@ -1692,7 +1828,7 @@ private fun MiteMessageBubble(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         Icon(
-                            if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            if (expanded) MaterialSymbols.RoundedFilled.Expand_less else MaterialSymbols.RoundedFilled.Expand_more,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(18.dp),
@@ -1764,7 +1900,7 @@ private fun AtlasSpaceButton(
         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
     ) {
         Icon(
-            Icons.Default.OpenInFull,
+            MaterialSymbols.RoundedFilled.Open_in_full,
             contentDescription = null,
             modifier = Modifier.size(16.dp),
         )
@@ -1907,8 +2043,8 @@ private fun ChatBubbleSurface(
     verticalArrangement: Arrangement.Vertical = Arrangement.Top,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val radiusLarge = 20.dp
-    val radiusSmall = 4.dp
+    val radiusLarge = 22.dp
+    val radiusSmall = 6.dp
     val shape = if (isOwn) {
         RoundedCornerShape(
             topStart = radiusLarge,
@@ -1933,12 +2069,13 @@ private fun ChatBubbleSurface(
     ) {
         Surface(
             shape = shape,
-            color = if (isOwn) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+            color = if (isOwn) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
             modifier = Modifier.widthIn(max = 480.dp),
-            shadowElevation = if (isOwn) 2.dp else 0.dp,
+            shadowElevation = if (isOwn) 1.dp else 0.dp,
+            tonalElevation = if (isOwn) 0.dp else 1.dp,
         ) {
             Column(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
                 verticalArrangement = verticalArrangement,
                 content = content,
             )
@@ -1946,7 +2083,7 @@ private fun ChatBubbleSurface(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun MessageBubble(
     message: ChatMessage,
@@ -1978,6 +2115,8 @@ private fun MessageBubble(
     }
 
     var showMenu by remember { mutableStateOf(false) }
+    var pressOffset by remember { mutableStateOf(Offset.Zero) }
+    val density = LocalDensity.current
 
     Box {
         ChatBubbleSurface(
@@ -1985,14 +2124,27 @@ private fun MessageBubble(
             isFirst = isFirst,
             isLast = isLast,
             isSingle = isSingle,
-            modifier = Modifier.combinedClickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = {},
-                onLongClick = {
-                    showMenu = true
+            modifier = Modifier
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onLongPress = { offset ->
+                            pressOffset = offset
+                            showMenu = true
+                        },
+                    )
+                }
+                .pointerInput(Unit) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            if (event.type == PointerEventType.Press && event.buttons.isSecondaryPressed) {
+                                pressOffset = event.changes.first().position
+                                showMenu = true
+                                event.changes.forEach { it.consume() }
+                            }
+                        }
+                    }
                 },
-            ),
         ) {
             val textColor = if (message.isOwn) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
             Text(
@@ -2027,7 +2179,7 @@ private fun MessageBubble(
             }
             if (isStarred) {
                 Icon(
-                    Icons.Default.Star,
+                    MaterialSymbols.RoundedFilled.Star,
                     contentDescription = "Помечено",
                     tint = if (message.isOwn) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f) else MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(14.dp).align(Alignment.End),
@@ -2035,48 +2187,102 @@ private fun MessageBubble(
             }
         }
 
-        DropdownMenu(
+        DropdownMenuPopup(
             expanded = showMenu,
             onDismissRequest = { showMenu = false },
+            offset = DpOffset(with(density) { pressOffset.x.toDp() }, with(density) { pressOffset.y.toDp() }),
         ) {
-            if (message.isOwn) {
-                DropdownMenuItem(
-                    text = { Text("Редактировать") },
-                    onClick = {
-                        showMenu = false
-                        onEdit?.invoke(message.id)
-                    },
-                )
+            val visibleItems = buildList {
+                if (message.isOwn) add("edit")
+                add("copy")
+                add("star")
+                if (message.isOwn) add("delete")
             }
-            DropdownMenuItem(
-                text = { Text("Копировать") },
-                onClick = {
-                    showMenu = false
-                    onCopy?.invoke()
-                },
-            )
-            DropdownMenuItem(
-                text = { Text(if (isStarred) "Убрать из избранного" else "В избранное") },
-                onClick = {
-                    showMenu = false
-                    onToggleStar?.invoke(message.id)
-                },
-            )
-            if (message.isOwn) {
-                DropdownMenuItem(
-                    text = { Text("Удалить") },
-                    onClick = {
-                        showMenu = false
-                        onDelete?.invoke(message.id)
-                    },
-                )
+            DropdownMenuGroup(
+                shapes = MenuDefaults.groupShape(0, 1),
+            ) {
+                visibleItems.forEachIndexed { index, kind ->
+                    val shape = if (index == 0) {
+                        MenuDefaults.leadingItemShape
+                    } else if (index == visibleItems.lastIndex) {
+                        MenuDefaults.trailingItemShape
+                    } else {
+                        MenuDefaults.middleItemShape
+                    }
+                    when (kind) {
+                        "edit" -> DropdownMenuItem(
+                            text = { Text("Редактировать") },
+                            shape = shape,
+                            leadingIcon = {
+                                Icon(
+                                    MaterialSymbols.RoundedFilled.Edit,
+                                    modifier = Modifier.size(MenuDefaults.LeadingIconSize),
+                                    contentDescription = null,
+                                )
+                            },
+                            onClick = {
+                                showMenu = false
+                                onEdit?.invoke(message.id)
+                            },
+                        )
+                        "copy" -> DropdownMenuItem(
+                            text = { Text("Копировать") },
+                            shape = shape,
+                            leadingIcon = {
+                                Icon(
+                                    MaterialSymbols.RoundedFilled.Content_copy,
+                                    modifier = Modifier.size(MenuDefaults.LeadingIconSize),
+                                    contentDescription = null,
+                                )
+                            },
+                            onClick = {
+                                showMenu = false
+                                onCopy?.invoke()
+                            },
+                        )
+                        "star" -> DropdownMenuItem(
+                            text = { Text(if (isStarred) "Убрать из избранного" else "В избранное") },
+                            shape = shape,
+                            leadingIcon = {
+                                Icon(
+                                    if (isStarred) MaterialSymbols.RoundedFilled.Star else MaterialSymbols.RoundedFilled.Star,
+                                    modifier = Modifier.size(MenuDefaults.LeadingIconSize),
+                                    contentDescription = null,
+                                )
+                            },
+                            onClick = {
+                                showMenu = false
+                                onToggleStar?.invoke(message.id)
+                            },
+                        )
+                        "delete" -> DropdownMenuItem(
+                            text = { Text("Удалить") },
+                            shape = shape,
+                            leadingIcon = {
+                                Icon(
+                                    MaterialSymbols.RoundedFilled.Delete,
+                                    modifier = Modifier.size(MenuDefaults.LeadingIconSize),
+                                    contentDescription = null,
+                                )
+                            },
+                            onClick = {
+                                showMenu = false
+                                onDelete?.invoke(message.id)
+                            },
+                            colors = MenuDefaults.itemColors(
+                                textColor = MaterialTheme.colorScheme.error,
+                                leadingIconColor = MaterialTheme.colorScheme.error,
+                            ),
+                        )
+                    }
+                }
             }
         }
     }
 }
 
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun AtlasSpaceViewer(
     html: String,
@@ -2114,8 +2320,11 @@ private fun AtlasSpaceViewer(
             TopAppBar(
                 title = { Text(title.ifBlank { "Atlas Space" }) },
                 navigationIcon = {
-                    IconButton(onClick = onClose) {
-                        Icon(Icons.Default.Close, contentDescription = "Закрыть")
+                    IconButton(
+                        shapes = IconButtonDefaults.shapes(),
+                        onClick = onClose,
+                    ) {
+                        Icon(MaterialSymbols.RoundedFilled.Close, contentDescription = "Закрыть")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = atlasAppBarColor()),
@@ -2210,7 +2419,7 @@ private fun EmptyPane() {
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
-                    Icons.Default.Lock,
+                    MaterialSymbols.RoundedFilled.Lock,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onPrimaryContainer,
                     modifier = Modifier.size(38.dp),
@@ -2231,25 +2440,30 @@ private fun EmptyPane() {
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun SettingsGroupHeader(text: String, colors: ColorScheme) {
     Text(
         text = text.uppercase(),
-        style = MaterialTheme.typography.labelSmall,
-        color = colors.onSurfaceVariant,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        style = MaterialTheme.typography.labelSmall.copy(
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 1.2.sp,
+        ),
+        color = colors.primary,
+        modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
     )
 }
 
 @Composable
-private fun atlasSwitchColors(colors: ColorScheme = MaterialTheme.colorScheme): SwitchColors {
+private fun atlasSwitchColors(colors: ColorScheme = MaterialTheme.colorScheme, darkTheme: Boolean = false): SwitchColors {
     // switches should change mood with the theme, not stay trapped in dark mode
+    val isDark = colors.surface.luminance() < 0.5f
     return SwitchDefaults.colors(
-        checkedThumbColor = colors.onPrimary,
+        checkedThumbColor = if (isDark) colors.onPrimary else Color.White,
         checkedTrackColor = colors.primary,
         checkedBorderColor = colors.primary,
         checkedIconColor = colors.primary,
-        uncheckedThumbColor = colors.onSurfaceVariant,
+        uncheckedThumbColor = colors.outline,
         uncheckedTrackColor = colors.surfaceContainerHigh,
         uncheckedBorderColor = colors.outline,
         uncheckedIconColor = colors.surfaceContainerHigh,
@@ -2521,7 +2735,7 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
     )
 
     val presetColors = listOf(
-        0xFF6750A4.toInt() to "Стандартный",
+        0xFF0066FF.toInt() to "Синий",
         0xFF3B5BA9.toInt() to "Синий океан",
         0xFF006A6A.toInt() to "Морской",
         0xFF386A20.toInt() to "Травяной",
@@ -2621,7 +2835,7 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
                                             modifier = Modifier.fillMaxSize(),
                                             contentAlignment = Alignment.Center,
                                         ) {
-                                            CircularWavyProgressIndicator(
+                                            LoadingIndicator(
                                                 modifier = Modifier.size(48.dp),
                                                 color = colors.primary,
                                             )
@@ -2631,7 +2845,7 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
                                     }
                                 }
                                 Icon(
-                                    Icons.Default.CameraAlt,
+                                    MaterialSymbols.RoundedFilled.Photo_camera,
                                     contentDescription = "Сменить фото",
                                     modifier = Modifier
                                         .align(Alignment.BottomEnd)
@@ -2782,7 +2996,7 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
                         if (isSelected) {
                             val tint = if (Color(colorInt).luminance() > 0.5f) Color.Black else Color.White
                             Icon(
-                                Icons.Filled.Check,
+                                MaterialSymbols.RoundedFilled.Check,
                                 contentDescription = null,
                                 tint = tint,
                                 modifier = Modifier.size(22.dp),
@@ -2850,61 +3064,96 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
 
             item { Spacer(Modifier.height(20.dp)) }
 
-            // readability controls, because pretty is useless if it hurts
+            // theme switcher, because the app should feel at home on every device
             item {
-                SettingsGroupHeader("КОНТРАСТ", colors)
+                SettingsGroupHeader("ТЕМА ОФОРМЛЕНИЯ", colors)
                 Surface(
                     color = colors.surfaceContainer,
                     shape = RoundedCornerShape(28.dp),
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                 ) {
                     Column(
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Filled.BrightnessLow, contentDescription = null,
-                                    tint = colors.onSurfaceVariant, modifier = Modifier.size(18.dp))
-                                if (state.contrast < 0.75f) {
-                                    Spacer(Modifier.width(8.dp))
-                                    Text(
-                                        "Трудно читать",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = colors.error,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                if (state.contrast > 1.25f) {
-                                    Text(
-                                        "Слишком ярко",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = colors.error,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Spacer(Modifier.width(8.dp))
-                                }
-                                Icon(Icons.Filled.BrightnessHigh, contentDescription = null,
-                                    tint = colors.onSurfaceVariant, modifier = Modifier.size(18.dp))
-                            }
-                        }
-                        Slider(
-                            value = state.contrast,
-                            onValueChange = viewModel::onContrastChanged,
-                            valueRange = 0.5f..1.5f,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
                         Text(
-                            text = "Яркость и насыщенность",
+                            text = "Светлая, тёмная или как на устройстве",
                             style = MaterialTheme.typography.bodySmall,
                             color = colors.onSurfaceVariant,
                         )
+                        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                            val isMobile = maxWidth < MOBILE_BREAKPOINT
+                            if (isMobile) {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    AppTheme.entries.forEach { theme ->
+                                        val isSelected = state.theme == theme
+                                        ToggleButton(
+                                            checked = isSelected,
+                                            onCheckedChange = { viewModel.onThemeChanged(theme) },
+                                            modifier = Modifier.fillMaxWidth(),
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                            ) {
+                                                Icon(
+                                                    imageVector = when (theme) {
+                                                        AppTheme.SYSTEM -> MaterialSymbols.RoundedFilled.Phone_android
+                                                        AppTheme.LIGHT -> MaterialSymbols.RoundedFilled.Light_mode
+                                                        AppTheme.DARK -> MaterialSymbols.RoundedFilled.Dark_mode
+                                                    },
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(18.dp),
+                                                )
+                                                Text(
+                                                    text = when (theme) {
+                                                        AppTheme.SYSTEM -> "Системная"
+                                                        AppTheme.LIGHT -> "Светлая"
+                                                        AppTheme.DARK -> "Тёмная"
+                                                    },
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                ButtonGroup(modifier = Modifier.fillMaxWidth()) {
+                                    AppTheme.entries.forEach { theme ->
+                                        val isSelected = state.theme == theme
+                                        ToggleButton(
+                                            checked = isSelected,
+                                            onCheckedChange = { viewModel.onThemeChanged(theme) },
+                                            modifier = Modifier.weight(1f),
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            ) {
+                                                Icon(
+                                                    imageVector = when (theme) {
+                                                        AppTheme.SYSTEM -> MaterialSymbols.RoundedFilled.Phone_android
+                                                        AppTheme.LIGHT -> MaterialSymbols.RoundedFilled.Light_mode
+                                                        AppTheme.DARK -> MaterialSymbols.RoundedFilled.Dark_mode
+                                                    },
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(18.dp),
+                                                )
+                                                Text(
+                                                    text = when (theme) {
+                                                        AppTheme.SYSTEM -> "Системная"
+                                                        AppTheme.LIGHT -> "Светлая"
+                                                        AppTheme.DARK -> "Тёмная"
+                                                    },
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -2915,7 +3164,7 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
             item {
                 SettingsGroupHeader("ПРИВАТНОСТЬ", colors)
                 SettingsTile(
-                    icon = Icons.Filled.Public,
+                    icon = MaterialSymbols.RoundedFilled.Public,
                     iconContainerColor = settingsIconColors[0],
                     title = "Публичный профиль",
                     subtitle = "Разрешить другим находить вас в поиске",
@@ -2931,7 +3180,7 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
                 )
                 Spacer(Modifier.height(3.dp))
                 SettingsTile(
-                    icon = Icons.Filled.Mic,
+                    icon = MaterialSymbols.RoundedFilled.Mic,
                     iconContainerColor = settingsIconColors[1],
                     title = "Микрофон",
                     subtitle = if (state.micEnabled) "Используется реальный микрофон" else "Симуляция бездействия",
@@ -2953,7 +3202,7 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
             item {
                 SettingsGroupHeader("СЕРВЕР", colors)
                 SettingsTile(
-                    icon = Icons.Filled.Cloud,
+                    icon = MaterialSymbols.RoundedFilled.Cloud,
                     iconContainerColor = settingsIconColors[2],
                     title = "Адрес сервера",
                     subtitle = state.serverUrl,
@@ -2961,9 +3210,12 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
                     shape = RoundedCornerShape(28.dp),
                     onClick = { viewModel.openServerUrlDialog() },
                     trailing = {
-                        IconButton(onClick = { viewModel.openServerUrlDialog() }) {
+                        IconButton(
+                            shapes = IconButtonDefaults.shapes(),
+                            onClick = { viewModel.openServerUrlDialog() },
+                        ) {
                             Icon(
-                                Icons.Filled.Edit,
+                                MaterialSymbols.RoundedFilled.Edit,
                                 contentDescription = "Изменить",
                                 tint = colors.onSurfaceVariant,
                             )
@@ -2978,7 +3230,7 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
             item {
                 SettingsGroupHeader("БЕЗОПАСНОСТЬ", colors)
                 SettingsTile(
-                    icon = Icons.Outlined.Fingerprint,
+                    icon = MaterialSymbols.RoundedFilled.Fingerprint,
                     iconContainerColor = settingsIconColors[3],
                     title = "Отпечаток ключа",
                     subtitle = state.publicKeyFingerprint,
@@ -2993,7 +3245,7 @@ private fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) {
             item {
                 SettingsGroupHeader("АККАУНТ", colors)
                 SettingsTile(
-                    icon = Icons.AutoMirrored.Outlined.Logout,
+                    icon = MaterialSymbols.RoundedFilled.Logout,
                     iconContainerColor = settingsIconColors[4],
                     title = "Выйти из аккаунта",
                     subtitle = "Отключиться и очистить локальные данные",
@@ -3099,6 +3351,7 @@ private fun formatTime(epochMs: Long): String {
     return "${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}"
 }
 
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun ExpressiveMessageInput(
     text: String,
@@ -3114,6 +3367,7 @@ private fun ExpressiveMessageInput(
     modifier: Modifier = Modifier,
 ) {
     val textFieldState = rememberTextFieldState(text)
+    val motionScheme = MaterialTheme.motionScheme
 
     LaunchedEffect(text) {
         if (textFieldState.text.toString() != text) {
@@ -3131,7 +3385,25 @@ private fun ExpressiveMessageInput(
             onTextChange(currentText)
         }
     }
-    
+
+    val chars = textFieldState.text.length
+    val isTyping = textFieldState.text.isNotBlank()
+    val sendProgress by animateFloatAsState(
+        targetValue = if (isTyping) 1f else 0f,
+        animationSpec = motionScheme.defaultSpatialSpec(),
+        label = "send-button-progress",
+    )
+    val sendContainerColor = lerp(
+        Color.Transparent,
+        MaterialTheme.colorScheme.primary,
+        sendProgress,
+    )
+    val sendContentColor = lerp(
+        MaterialTheme.colorScheme.onSurfaceVariant,
+        MaterialTheme.colorScheme.onPrimary,
+        sendProgress,
+    )
+
     Column(modifier = modifier) {
         if (showEmojiPicker) {
             EmojiPicker(
@@ -3142,32 +3414,41 @@ private fun ExpressiveMessageInput(
             )
         }
         Surface(
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
-            tonalElevation = 0.dp,
-            modifier = Modifier.fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp)
-                .clip(RoundedCornerShape(28.dp))
-                .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f), RoundedCornerShape(28.dp)),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            tonalElevation = 1.dp,
+            shape = MaterialTheme.shapes.extraLarge,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 6.dp),
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
             ) {
                 IconButton(
-                    onClick = onAttachClick,
-                    modifier = Modifier
+                    onClick = onEmojiToggle,
+                    shapes = IconButtonDefaults.shapes(),
+                    colors = IconButtonDefaults.filledTonalIconButtonColors(
+                        containerColor = if (showEmojiPicker)
+                            MaterialTheme.colorScheme.primaryContainer
+                        else MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = if (showEmojiPicker)
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        else MaterialTheme.colorScheme.onSecondaryContainer,
+                    ),
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = "Прикрепить файл",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        imageVector = MaterialSymbols.RoundedFilled.Mood,
+                        contentDescription = "Эмодзи",
                     )
                 }
+
+                Spacer(Modifier.width(4.dp))
 
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .padding(vertical = 8.dp, horizontal = 4.dp),
+                        .padding(vertical = 4.dp, horizontal = 8.dp),
                 ) {
                     BasicTextField(
                         state = textFieldState,
@@ -3204,21 +3485,8 @@ private fun ExpressiveMessageInput(
                     )
                 }
 
-                IconButton(
-                    onClick = onEmojiToggle,
-                    modifier = Modifier
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Mood,
-                        contentDescription = "Эмодзи",
-                        tint = if (showEmojiPicker) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-
                 Spacer(Modifier.width(4.dp))
 
-                val chars = textFieldState.text.length
-                val isTyping = textFieldState.text.isNotBlank()
                 val nearLimit = chars >= (maxLength * 0.85f).toInt()
                 if (nearLimit || chars > maxLength) {
                     Text(
@@ -3227,6 +3495,23 @@ private fun ExpressiveMessageInput(
                         color = if (chars > maxLength) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+
+                IconButton(
+                    onClick = onAttachClick,
+                    shapes = IconButtonDefaults.shapes(),
+                    colors = IconButtonDefaults.filledTonalIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    ),
+                ) {
+                    Icon(
+                        imageVector = MaterialSymbols.RoundedFilled.Attach_file,
+                        contentDescription = "Прикрепить файл",
+                    )
+                }
+
+                Spacer(Modifier.width(4.dp))
+
                 IconButton(
                     onClick = {
                         if (isTyping) {
@@ -3235,24 +3520,40 @@ private fun ExpressiveMessageInput(
                             onVoiceClick()
                         }
                     },
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(if (isTyping) MaterialTheme.colorScheme.primary else Color.Transparent),
+                    shapes = IconButtonDefaults.shapes(),
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = sendContainerColor,
+                        contentColor = sendContentColor,
+                    ),
                 ) {
-                    Icon(
-                        imageVector = if (textFieldState.text.isNotBlank()) Icons.Rounded.Send else Icons.Default.Mic,
-                        contentDescription = if (isTyping) "Отправить сообщение" else "Записать голос",
-                        tint = if (isTyping) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp),
-                    )
+                    Crossfade(
+                        targetState = isTyping,
+                        animationSpec = motionScheme.fastSpatialSpec(),
+                        label = "send-icon-crossfade",
+                    ) { typing ->
+                        if (typing) {
+                            Icon(
+                                imageVector = MaterialSymbols.RoundedFilled.Send,
+                                contentDescription = "Отправить сообщение",
+                                tint = sendContentColor,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        } else {
+                            Icon(
+                                imageVector = MaterialSymbols.RoundedFilled.Mic,
+                                contentDescription = "Записать голос",
+                                tint = sendContentColor,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                    }
                 }
             }
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun AtlasXScreen(
     imageDataUrl: String?,
@@ -3279,7 +3580,7 @@ private fun AtlasXScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onClose) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
+                        Icon(MaterialSymbols.RoundedFilled.Arrow_back, contentDescription = "Назад")
                     }
                 },
                 colors = TopAppBarDefaults.largeTopAppBarColors(
@@ -3349,10 +3650,10 @@ private fun AtlasXScreen(
                         modifier = Modifier.weight(0.95f),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        AtlasXFeatureCard("20 000 символов в сообщении", "Отправляйте большие тексты без разбиения.", Icons.Default.Message)
-                        AtlasXFeatureCard("Приоритет Mite", "Ускоренные ответы и расширенные AI-возможности.", Icons.Default.Bolt)
-                        AtlasXFeatureCard("Эксклюзивные темы", "Новые стили интерфейса и расширенная персонализация.", Icons.Default.Palette)
-                        AtlasXFeatureCard("Скоростной канал", "Более низкая задержка и приоритетная доставка.", Icons.Default.Speed)
+                        AtlasXFeatureCard("20 000 символов в сообщении", "Отправляйте большие тексты без разбиения.", MaterialSymbols.RoundedFilled.Chat)
+                        AtlasXFeatureCard("Приоритет Mite", "Ускоренные ответы и расширенные AI-возможности.", MaterialSymbols.RoundedFilled.Bolt)
+                        AtlasXFeatureCard("Эксклюзивные темы", "Новые стили интерфейса и расширенная персонализация.", MaterialSymbols.RoundedFilled.Palette)
+                        AtlasXFeatureCard("Скоростной канал", "Более низкая задержка и приоритетная доставка.", MaterialSymbols.RoundedFilled.Speed)
                     }
                 }
                 Spacer(Modifier.height(16.dp))
@@ -3373,10 +3674,10 @@ private fun AtlasXScreen(
                         .padding(horizontal = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    AtlasXFeatureCard("20 000 символов в сообщении", "Отправляйте большие тексты без разбиения.", Icons.Default.Message)
-                    AtlasXFeatureCard("Приоритет Mite", "Ускоренные ответы и расширенные AI-возможности.", Icons.Default.Bolt)
-                    AtlasXFeatureCard("Эксклюзивные темы", "Новые стили интерфейса и расширенная персонализация.", Icons.Default.Palette)
-                    AtlasXFeatureCard("Скоростной канал", "Более низкая задержка и приоритетная доставка.", Icons.Default.Speed)
+                    AtlasXFeatureCard("20 000 символов в сообщении", "Отправляйте большие тексты без разбиения.", MaterialSymbols.RoundedFilled.Chat)
+                    AtlasXFeatureCard("Приоритет Mite", "Ускоренные ответы и расширенные AI-возможности.", MaterialSymbols.RoundedFilled.Bolt)
+                    AtlasXFeatureCard("Эксклюзивные темы", "Новые стили интерфейса и расширенная персонализация.", MaterialSymbols.RoundedFilled.Palette)
+                    AtlasXFeatureCard("Скоростной канал", "Более низкая задержка и приоритетная доставка.", MaterialSymbols.RoundedFilled.Speed)
                 }
                 Spacer(Modifier.height(16.dp))
             }
@@ -3385,7 +3686,7 @@ private fun AtlasXScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun AtlasXPaymentScreen(
     onBack: () -> Unit,
@@ -3403,7 +3704,7 @@ private fun AtlasXPaymentScreen(
                 title = { Text("Оплата Atlas X") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
+                        Icon(MaterialSymbols.RoundedFilled.Arrow_back, contentDescription = "Назад")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -3455,7 +3756,7 @@ private fun AtlasXPaymentScreen(
                                 modifier = Modifier.size(40.dp),
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
-                                    Icon(Icons.Default.Lock, contentDescription = null, tint = primary, modifier = Modifier.size(20.dp))
+                                    Icon(MaterialSymbols.RoundedFilled.Lock, contentDescription = null, tint = primary, modifier = Modifier.size(20.dp))
                                 }
                             }
                         },
@@ -3497,7 +3798,7 @@ private fun AtlasXPaymentScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun AtlasXActivatedScreen(
     onDone: () -> Unit,
@@ -3507,12 +3808,24 @@ private fun AtlasXActivatedScreen(
 
     val primary = MaterialTheme.colorScheme.primary
     val unlockedFeatures = listOf(
-        Triple(Icons.Default.AutoAwesome, "20 000 символов", "Отправляйте большие тексты без ограничений"),
-        Triple(Icons.Default.Bolt, "Приоритет Mite", "Ускоренные ответы и расширенные AI-возможности"),
-        Triple(Icons.Default.Palette, "Эксклюзивные темы", "Новые стили интерфейса и персонализация"),
-        Triple(Icons.Default.Speed, "Скоростной канал", "Низкая задержка и приоритетная доставка"),
-        Triple(Icons.Default.Star, "Расширенные лимиты", "Увеличенные квоты на все операции"),
-        Triple(Icons.Default.Verified, "X-бейдж", "Отметка подписчика в профиле"),
+        Triple<androidx.compose.ui.graphics.vector.ImageVector, String, String>(
+            MaterialSymbols.RoundedFilled.Auto_awesome, "20 000 символов", "Отправляйте большие тексты без ограничений"
+        ),
+        Triple<androidx.compose.ui.graphics.vector.ImageVector, String, String>(
+            MaterialSymbols.RoundedFilled.Bolt, "Приоритет Mite", "Ускоренные ответы и расширенные AI-возможности"
+        ),
+        Triple<androidx.compose.ui.graphics.vector.ImageVector, String, String>(
+            MaterialSymbols.RoundedFilled.Palette, "Эксклюзивные темы", "Новые стили интерфейса и персонализация"
+        ),
+        Triple<androidx.compose.ui.graphics.vector.ImageVector, String, String>(
+            MaterialSymbols.RoundedFilled.Speed, "Скоростной канал", "Низкая задержка и приоритетная доставка"
+        ),
+        Triple<androidx.compose.ui.graphics.vector.ImageVector, String, String>(
+            MaterialSymbols.RoundedFilled.Star, "Расширенные лимиты", "Увеличенные квоты на все операции"
+        ),
+        Triple<androidx.compose.ui.graphics.vector.ImageVector, String, String>(
+            MaterialSymbols.RoundedFilled.Verified, "X-бейдж", "Отметка подписчика в профиле"
+        ),
     )
 
     Scaffold(
@@ -3560,7 +3873,7 @@ private fun AtlasXActivatedScreen(
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
-                            Icons.Default.CheckCircle,
+                            MaterialSymbols.RoundedFilled.Check_circle,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onPrimaryContainer,
                             modifier = Modifier.size(56.dp),
@@ -3756,7 +4069,7 @@ private fun AtlasXHeroCard(
             SuggestionChip(
                 onClick = {},
                 label = { Text("Premium") },
-                icon = { Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = primary) },
+                icon = { Icon(MaterialSymbols.RoundedFilled.Auto_awesome, contentDescription = null, tint = primary) },
                 colors = SuggestionChipDefaults.suggestionChipColors(
                     containerColor = MaterialTheme.colorScheme.secondaryContainer,
                     labelColor = MaterialTheme.colorScheme.onSecondaryContainer,

@@ -17,6 +17,7 @@ data class UiPreferences(
     val accentColor: Int = 0xFF2196F3.toInt(),
     val colorPreset: String = "DEFAULT",
     val contrast: Float = 1.0f,
+    val theme: String = "SYSTEM",
     val serverUrl: String = "ws://127.0.0.1:8080",
 )
 

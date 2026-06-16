@@ -32,6 +32,7 @@ private class AndroidSessionStore(private val context: Context) : SessionStore {
             .putInt("accentColor", preferences.accentColor)
             .putString("colorPreset", preferences.colorPreset)
             .putFloat("contrast", preferences.contrast)
+            .putString("theme", preferences.theme)
             .putString("serverUrl", preferences.serverUrl)
             .apply()
     }
@@ -43,6 +44,7 @@ private class AndroidSessionStore(private val context: Context) : SessionStore {
             accentColor = prefs.getInt("accentColor", 0xFF2196F3.toInt()),
             colorPreset = prefs.getString("colorPreset", "DEFAULT") ?: "DEFAULT",
             contrast = prefs.getFloat("contrast", 1.0f),
+            theme = prefs.getString("theme", "SYSTEM") ?: "SYSTEM",
             serverUrl = prefs.getString("serverUrl", "ws://127.0.0.1:8080") ?: "ws://127.0.0.1:8080",
         )
     }

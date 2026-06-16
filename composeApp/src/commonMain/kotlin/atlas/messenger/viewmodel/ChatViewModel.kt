@@ -46,6 +46,7 @@ data class ChatUiState(
     val accentColor: Int = 0xFF2196F3.toInt(),
     val colorPreset: ColorPreset = ColorPreset.DEFAULT,
     val contrast: Float = 1.0f,
+    val theme: AppTheme = AppTheme.SYSTEM,
     val publicKeyFingerprint: String = "",
     val serverUrl: String = "ws://127.0.0.1:8080",
     val showServerUrlDialog: Boolean = false,
@@ -113,6 +114,8 @@ data class AtlasDialog(
 
 enum class ColorPreset { DEFAULT, VIBRANT, MUTED, PASTEL }
 
+enum class AppTheme { SYSTEM, LIGHT, DARK }
+
 @OptIn(ExperimentalUuidApi::class)
 class ChatViewModel : ViewModel() {
     companion object {
@@ -149,6 +152,7 @@ class ChatViewModel : ViewModel() {
                     accentColor = prefs.accentColor,
                     colorPreset = runCatching { ColorPreset.valueOf(prefs.colorPreset) }.getOrDefault(ColorPreset.DEFAULT),
                     contrast = prefs.contrast,
+                    theme = runCatching { AppTheme.valueOf(prefs.theme) }.getOrDefault(AppTheme.SYSTEM),
                     serverUrl = prefs.serverUrl,
                 )
             }
@@ -696,9 +700,18 @@ class ChatViewModel : ViewModel() {
     }
 
     fun onContrastChanged(contrast: Float) {
-        _state.update { 
-            runCatching { it.copy(contrast = contrast) }.getOrElse { 
-                ChatUiState(contrast = contrast) 
+        _state.update {
+            runCatching { it.copy(contrast = contrast) }.getOrElse {
+                ChatUiState(contrast = contrast)
+            }
+        }
+        persistPreferences()
+    }
+
+    fun onThemeChanged(theme: AppTheme) {
+        _state.update {
+            runCatching { it.copy(theme = theme) }.getOrElse {
+                ChatUiState(theme = theme)
             }
         }
         persistPreferences()
@@ -804,6 +817,7 @@ class ChatViewModel : ViewModel() {
                 accentColor = s.accentColor,
                 colorPreset = s.colorPreset.name,
                 contrast = s.contrast,
+                theme = s.theme.name,
                 serverUrl = s.serverUrl,
             ),
         )
