@@ -39,6 +39,7 @@ sealed class ServerEvent {
     data class MiteChatDone(val id: String) : ServerEvent()
     data class MiteChatError(val id: String, val message: String) : ServerEvent()
     data class AtlasXImageReceived(val data: String?, val message: String?) : ServerEvent()
+    data class QrLoginConfirmed(val username: String, val publicKey: String, val isPublic: Boolean) : ServerEvent()
 }
 
 data class MiteChatContextMessage(val role: String, val content: String)
@@ -169,6 +170,9 @@ class WebSocketClient(private val httpClient: HttpClient) {
     suspend fun fetchServerImage(path: String) =
         send(buildJsonObject { put("type", "fetch_server_image"); put("path", path) })
 
+    suspend fun qrLoginConfirm(token: String) =
+        send(buildJsonObject { put("type", "qr_login_confirm"); put("token", token) })
+
     fun disconnect() {
         session?.let { s -> CoroutineScope(Dispatchers.Default).launch { s.close() } }
         _connectionState.value = ConnectionState.DISCONNECTED
@@ -249,6 +253,7 @@ class WebSocketClient(private val httpClient: HttpClient) {
                 "mite_chat_done" -> ServerEvent.MiteChatDone(obj.string("id")!!)
                 "mite_chat_error" -> ServerEvent.MiteChatError(obj.string("id")!!, obj.string("message")!!)
                 "atlas_x_image" -> ServerEvent.AtlasXImageReceived(obj.string("data"), obj.string("message"))
+                "qr_login_confirmed" -> ServerEvent.QrLoginConfirmed(obj.string("username")!!, obj.string("publicKey")!!, obj.boolean("isPublic"))
                 else -> return
             }
             _events.emit(event)

@@ -672,12 +672,22 @@ internal fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) 
                 item {
                     SettingsGroupHeader("АККАУНТ", colors)
                     SettingsTile(
+                        icon = MaterialSymbols.RoundedFilled.Qr_code_scanner,
+                        iconContainerColor = settingsIconColors[0],
+                        title = "Сканировать QR",
+                        subtitle = "Подключить веб-версию",
+                        colors = colors,
+                        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp, bottomStart = 4.dp, bottomEnd = 4.dp),
+                        onClick = { viewModel.openQrScanner() },
+                    )
+                    Spacer(Modifier.height(3.dp))
+                    SettingsTile(
                         icon = MaterialSymbols.RoundedFilled.Logout,
                         iconContainerColor = settingsIconColors[4],
                         title = "Выйти из аккаунта",
                         subtitle = "Отключиться и очистить локальные данные",
                         colors = colors,
-                        shape = RoundedCornerShape(28.dp),
+                        shape = RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 28.dp, bottomEnd = 28.dp),
                         onClick = { viewModel.disconnect() },
                     )
                 }
@@ -711,6 +721,15 @@ internal fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) 
             currentUrl = state.serverUrl,
             onUrlChanged = viewModel::onServerUrlChanged,
             onDismiss = viewModel::closeServerUrlDialog,
+        )
+    }
+
+    if (state.showQrScanner) {
+        QrScannerDialog(
+            tokenInput = state.qrLoginTokenInput,
+            onTokenInputChanged = viewModel::onQrTokenInputChanged,
+            onConfirm = viewModel::confirmQrLogin,
+            onDismiss = viewModel::closeQrScanner,
         )
     }
 }
@@ -764,6 +783,54 @@ private fun ServerUrlDialog(
                 onClick = onDismiss,
                 modifier = Modifier
             ) {
+                Text("Отмена")
+            }
+        },
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun QrScannerDialog(
+    tokenInput: String,
+    onTokenInputChanged: (String) -> Unit,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Подключить веб-версию") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "Отсканируйте QR-код на экране веб-версии или введите токен вручную",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                TextField(
+                    value = tokenInput,
+                    onValueChange = onTokenInputChanged,
+                    label = { Text("Токен") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = TextFieldDefaults.colors(
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    ),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onConfirm,
+                enabled = tokenInput.isNotBlank(),
+            ) {
+                Text("Подключить")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
                 Text("Отмена")
             }
         },

@@ -65,6 +65,9 @@ sealed class ServerFrame {
 
     @Serializable
     data class MessageDeleted(val id: String) : ServerFrame()
+
+    @Serializable
+    data class QrLoginConfirmed(val username: String, val publicKey: String, val isPublic: Boolean) : ServerFrame()
 }
 
 @Serializable
@@ -95,4 +98,7 @@ sealed class ClientFrame {
 
     @Serializable
     data class DeleteMessage(val id: String) : ClientFrame()
+
+    @Serializable
+    data class QrLoginConfirm(val token: String) : ClientFrame()
 }

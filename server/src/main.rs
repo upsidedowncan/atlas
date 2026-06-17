@@ -3,7 +3,7 @@ use std::env;
 use std::net::SocketAddr;
 use std::path::{Component, Path};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use futures_util::{SinkExt, StreamExt};
@@ -93,6 +93,15 @@ enum ClientFrame {
     },
     #[serde(rename = "fetch_server_image")]
     FetchServerImage { path: String },
+    #[serde(rename = "qr_login_request")]
+    QrLoginRequest {
+        #[serde(rename = "publicKey")]
+        public_key: String,
+    },
+    #[serde(rename = "qr_login_confirm")]
+    QrLoginConfirm { token: String },
+    #[serde(rename = "qr_login_poll")]
+    QrLoginPoll { token: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -186,6 +195,12 @@ enum ServerFrame {
     MiteChatError { id: String, message: String },
     #[serde(rename = "atlas_x_image")]
     AtlasXImage { data: Option<String>, message: Option<String> },
+    #[serde(rename = "qr_login_token")]
+    QrLoginToken { token: String },
+    #[serde(rename = "qr_login_confirmed")]
+    QrLoginConfirmed { username: String, #[serde(rename = "publicKey")] public_key: String, #[serde(rename = "isPublic")] is_public: bool },
+    #[serde(rename = "qr_login_error")]
+    QrLoginError { message: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -211,9 +226,19 @@ struct OnlineUser {
     tx: tokio::sync::mpsc::UnboundedSender<Message>,
 }
 
+struct QrLoginSession {
+    #[allow(dead_code)]
+    token: String,
+    web_public_key: String,
+    confirmed: bool,
+    confirmed_username: Option<String>,
+    created_at: Instant,
+}
+
 struct State {
     online: HashMap<String, OnlineUser>,
     db: Connection,
+    qr_sessions: HashMap<String, QrLoginSession>,
 }
 
 impl State {
@@ -221,6 +246,7 @@ impl State {
         Self {
             online: HashMap::new(),
             db,
+            qr_sessions: HashMap::new(),
         }
     }
 }
@@ -344,6 +370,103 @@ async fn handle_message(
                 }
             }
         });
+        return Ok(());
+    }
+
+    if let ClientFrame::QrLoginRequest { public_key } = frame.clone() {
+        let token: String = {
+            let mut rng = OsRng;
+            let mut bytes = [0u8; 32];
+            rng.fill_bytes(&mut bytes);
+            BASE64.encode(bytes).replace('+', "a").replace('/', "b").replace('=', "c")
+        };
+        let session = QrLoginSession {
+            token: token.clone(),
+            web_public_key: public_key,
+            confirmed: false,
+            confirmed_username: None,
+            created_at: Instant::now(),
+        };
+        {
+            let mut s = state.lock().await;
+            s.qr_sessions.insert(token.clone(), session);
+            s.qr_sessions.retain(|_, v| v.created_at.elapsed() < Duration::from_secs(120));
+        }
+        send_frame(tx, ServerFrame::QrLoginToken { token })?;
+        return Ok(());
+    }
+
+    if let ClientFrame::QrLoginPoll { token } = frame.clone() {
+        let mut s = state.lock().await;
+        if let Some(session) = s.qr_sessions.get(&token) {
+            if session.created_at.elapsed() > Duration::from_secs(120) {
+                s.qr_sessions.remove(&token);
+                send_frame(tx, ServerFrame::QrLoginError { message: "QR token expired".into() })?;
+            } else if session.confirmed {
+                let uname = session.confirmed_username.clone().unwrap_or_default();
+                let web_key = session.web_public_key.clone();
+                let is_public: i32 = s.db.query_row(
+                    "SELECT is_public FROM users WHERE username = ?",
+                    [&uname],
+                    |row| row.get(0),
+                ).unwrap_or(0);
+
+                *username = Some(uname.clone());
+                s.db.execute(
+                    "UPDATE users SET public_key = ? WHERE username = ?",
+                    params![web_key.clone(), &uname],
+                )?;
+                s.online.insert(uname.clone(), OnlineUser {
+                    username: uname.clone(),
+                    public_key: web_key,
+                    tx: tx.clone(),
+                });
+
+                s.qr_sessions.remove(&token);
+
+                info!("QR login: {} ({} online)", uname, s.online.len());
+                send_frame(tx, ServerFrame::AuthOk {
+                    username: uname.clone(),
+                    is_public: is_public == 1,
+                })?;
+                send_frame(tx, ServerFrame::UserList { users: s.online.keys().cloned().collect() })?;
+
+                let history = fetch_history(&s.db, &uname)?;
+                send_frame(tx, ServerFrame::MessageHistory { messages: history })?;
+                send_atlas_dialog_history(&s.db, tx)?;
+                send_display_names(&s.db, tx)?;
+                send_archived_conversations(&s.db, &uname, tx)?;
+            } else {
+                drop(s);
+                send_frame(tx, ServerFrame::QrLoginError { message: "waiting".into() })?;
+            }
+        } else {
+            drop(s);
+            send_frame(tx, ServerFrame::QrLoginError { message: "Invalid token".into() })?;
+        }
+        return Ok(());
+    }
+
+    if let ClientFrame::QrLoginConfirm { token } = frame.clone() {
+        let sender = username.as_ref().ok_or("Not authenticated")?;
+        let mut s = state.lock().await;
+        if let Some(session) = s.qr_sessions.get_mut(&token) {
+            if session.created_at.elapsed() > Duration::from_secs(120) {
+                s.qr_sessions.remove(&token);
+                send_frame(tx, ServerFrame::QrLoginError { message: "QR token expired".into() })?;
+            } else {
+                session.confirmed = true;
+                session.confirmed_username = Some(sender.clone());
+                send_frame(tx, ServerFrame::QrLoginConfirmed {
+                    username: sender.clone(),
+                    public_key: session.web_public_key.clone(),
+                    is_public: false,
+                })?;
+                info!("QR login confirmed by '{}' for web client", sender);
+            }
+        } else {
+            send_frame(tx, ServerFrame::QrLoginError { message: "Invalid token".into() })?;
+        }
         return Ok(());
     }
 
@@ -775,6 +898,7 @@ async fn handle_message(
         }
         ClientFrame::MiteChatRequest { .. } => unreachable!("handled before acquiring state"),
         ClientFrame::FetchServerImage { .. } => unreachable!("handled before acquiring state"),
+        ClientFrame::QrLoginRequest { .. } | ClientFrame::QrLoginConfirm { .. } | ClientFrame::QrLoginPoll { .. } => unreachable!("handled before acquiring state"),
     }
 }
 
