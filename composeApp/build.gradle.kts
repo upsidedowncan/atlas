@@ -126,7 +126,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "atlas.messenger"
-            packageVersion = "0.0.2.1"
+            packageVersion = "0.0.2"
         }
     }
 }
