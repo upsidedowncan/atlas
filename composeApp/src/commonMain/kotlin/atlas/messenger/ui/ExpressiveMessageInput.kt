@@ -72,7 +72,7 @@ fun ExpressiveMessageInput(
     val sendContainerColor = lerp(Color.Transparent, MaterialTheme.colorScheme.primary, sendProgress)
     val sendContentColor = lerp(MaterialTheme.colorScheme.onSurfaceVariant, MaterialTheme.colorScheme.onPrimary, sendProgress)
 
-    Column(modifier = modifier) {
+    Column(modifier = modifier.imePadding().navigationBarsPadding()) {
         if (showEmojiPicker) {
             AtlasEmojiPicker(
                 onEmojiSelected = onEmojiSelected,
@@ -108,7 +108,6 @@ fun ExpressiveMessageInput(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 24.dp, max = 150.dp)
-                            .imePadding()
                             .onKeyEvent { event ->
                                 if (event.key == Key.Enter && textFieldState.text.isNotBlank()) {
                                     if (textFieldState.text.length <= maxLength) onSendClick() else onLimitExceeded()
