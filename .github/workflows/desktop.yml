@@ -37,10 +37,6 @@ jobs:
             runs_on: windows-latest
             artifact_name: desktop-msi-Windows
             artifact_path: composeApp/build/compose/binaries/main/msi/*.msi
-          - os_name: macOS
-            runs_on: macos-latest
-            artifact_name: desktop-dmg-macOS
-            artifact_path: composeApp/build/compose/binaries/main/dmg/*.dmg
     steps:
       - uses: actions/checkout@v4
         with:
@@ -75,16 +71,6 @@ jobs:
             ./gradlew :composeApp:packageDeb --no-daemon --stacktrace
           elif [ "${{ matrix.os_name }}" = "Windows" ]; then
             ./gradlew :composeApp:packageMsi --no-daemon --stacktrace
-          elif [ "${{ matrix.os_name }}" = "macOS" ]; then
-            ./gradlew :composeApp:packageDmg --no-daemon --stacktrace || {
-              echo "=== jpackage args ==="
-              cat composeApp/build/compose/tmp/createDistributable.args.txt 2>/dev/null || true
-              echo "=== jpackage stdout ==="
-              cat composeApp/build/compose/logs/createDistributable/jpackage-*-out.txt 2>/dev/null || true
-              echo "=== jpackage stderr ==="
-              cat composeApp/build/compose/logs/createDistributable/jpackage-*-err.txt 2>/dev/null || true
-              exit 1
-            }
           fi
 
       - name: Upload ${{ matrix.os_name }} package
