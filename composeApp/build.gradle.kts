@@ -122,8 +122,6 @@ compose.resources {
 compose.desktop {
     application {
         mainClass = "atlas.messenger.MainKt"
-        jvmArgs("--add-opens", "java.desktop/sun.awt=ALL-UNNAMED")
-        jvmArgs("--add-opens", "java.desktop/java.awt.peer=ALL-UNNAMED")
 
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
@@ -144,6 +142,8 @@ tasks.withType<org.jetbrains.compose.reload.gradle.ComposeHotRun>().configureEac
 tasks.withType<JavaExec>().matching { it.name == "run" }.configureEach {
     val userId = project.findProperty("user") as? String ?: "0"
     systemProperty("atlas.user", userId)
+    jvmArgs("--add-opens", "java.desktop/sun.awt=ALL-UNNAMED")
+    jvmArgs("--add-opens", "java.desktop/java.awt.peer=ALL-UNNAMED")
     val isMac = System.getProperty("os.name").contains("Mac", ignoreCase = true)
     if (isMac) {
         jvmArgs("--add-opens", "java.desktop/sun.lwawt=ALL-UNNAMED")
