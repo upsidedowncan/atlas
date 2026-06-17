@@ -1487,6 +1487,10 @@ class ChatViewModel : ViewModel() {
                 }
             }
 
+            is ServerEvent.QrLoginConfirmed -> {
+                closeQrScanner()
+            }
+
             ServerEvent.Disconnected -> {
                 val wasOnChatScreen = state.value.screen == Screen.CHAT
                 _state.update {
