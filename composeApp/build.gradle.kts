@@ -91,8 +91,8 @@ android {
         applicationId = "atlas.messenger"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 2
-        versionName = "0.0.2"
+        versionCode = 3
+        versionName = "0.0.2.1"
     }
     packaging {
         resources {
@@ -126,7 +126,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "atlas.messenger"
-            packageVersion = "0.0.2"
+            packageVersion = "0.0.2.1"
         }
     }
 }
