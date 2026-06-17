@@ -2,7 +2,7 @@ name: Release
 
 on:
   push:
-    tags: ['v*']
+    tags: ['v*', 'a*']
 
 concurrency:
   group: release-${{ github.ref }}
@@ -46,7 +46,6 @@ jobs:
             artifacts/**/*.zip
             artifacts/**/*.deb
             artifacts/**/*.msi
-            artifacts/**/*.dmg
           fail_on_unmatched_files: false
           generate_release_notes: true
         env:
