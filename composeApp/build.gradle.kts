@@ -135,11 +135,6 @@ compose.desktop {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "atlas.messenger"
             packageVersion = "0.0.2"
-
-            macOS {
-                signing = false
-                dmgPackageVersion = "0.0.2"
-            }
         }
     }
 }
