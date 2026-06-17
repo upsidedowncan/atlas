@@ -30,6 +30,7 @@ import io.github.ismoy.imagepickerkmp.domain.extensions.loadBase64
 import io.github.ismoy.imagepickerkmp.domain.models.MimeType
 import io.github.ismoy.imagepickerkmp.presentation.ui.components.GalleryPickerLauncher
 import atlas.messenger.ui.components.AvatarBox
+import atlas.messenger.ui.QrCameraScanner
 import atlas.messenger.ui.components.displayNameFor
 import atlas.messenger.viewmodel.AppTheme
 import atlas.messenger.viewmodel.ChatViewModel
@@ -725,10 +726,8 @@ internal fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) 
     }
 
     if (state.showQrScanner) {
-        QrScannerDialog(
-            tokenInput = state.qrLoginTokenInput,
-            onTokenInputChanged = viewModel::onQrTokenInputChanged,
-            onConfirm = viewModel::confirmQrLogin,
+        QrCameraScanner(
+            onQrCodeScanned = viewModel::onQrCodeScanned,
             onDismiss = viewModel::closeQrScanner,
         )
     }
@@ -789,50 +788,4 @@ private fun ServerUrlDialog(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun QrScannerDialog(
-    tokenInput: String,
-    onTokenInputChanged: (String) -> Unit,
-    onConfirm: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Подключить веб-версию") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    "Отсканируйте QR-код на экране веб-версии или введите токен вручную",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                TextField(
-                    value = tokenInput,
-                    onValueChange = onTokenInputChanged,
-                    label = { Text("Токен") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = TextFieldDefaults.colors(
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                    ),
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = onConfirm,
-                enabled = tokenInput.isNotBlank(),
-            ) {
-                Text("Подключить")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Отмена")
-            }
-        },
-    )
-}
+

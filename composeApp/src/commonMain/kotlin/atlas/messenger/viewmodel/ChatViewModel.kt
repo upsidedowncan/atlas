@@ -96,7 +96,6 @@ data class ChatUiState(
     val pinnedConversations: Set<String> = emptySet(),
     val toastMessage: String? = null,
     val showQrScanner: Boolean = false,
-    val qrLoginTokenInput: String = "",
 )
 data class MiteChat(
     val id: String,
@@ -354,20 +353,15 @@ class ChatViewModel : ViewModel() {
     }
 
     fun closeQrScanner() {
-        _state.update { it.copy(showQrScanner = false, qrLoginTokenInput = "") }
+        _state.update { it.copy(showQrScanner = false) }
     }
 
-    fun onQrTokenInputChanged(value: String) {
-        _state.update { it.copy(qrLoginTokenInput = value) }
-    }
-
-    fun confirmQrLogin() {
-        val token = state.value.qrLoginTokenInput.trim()
-        if (token.isEmpty()) return
+    fun onQrCodeScanned(token: String) {
+        if (token.isBlank()) return
         viewModelScope.launch(Dispatchers.Default) {
             runCatching {
-                wsClient.qrLoginConfirm(token)
-                _state.update { it.copy(showQrScanner = false, qrLoginTokenInput = "", toastMessage = "QR-код подтверждён") }
+                wsClient.qrLoginConfirm(token.trim())
+                _state.update { it.copy(showQrScanner = false, toastMessage = "QR-код подтверждён") }
             }.onFailure { e ->
                 _state.update { it.copy(errorMessage = "Ошибка подтверждения QR: ${e.message}") }
             }
