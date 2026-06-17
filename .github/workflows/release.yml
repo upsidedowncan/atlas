@@ -41,6 +41,8 @@ jobs:
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: a0.0.2.1
+          name: a0.0.2.1
           files: |
             artifacts/**/*.apk
             artifacts/**/*.zip
