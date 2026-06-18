@@ -844,20 +844,7 @@ async fn handle_message(
                 }
             }
 
-            if to == "__everyone__" {
-                // Fan out to all online users except sender
-                for (uname, user) in s.online.iter() {
-                    if uname == sender { continue; }
-                    let msg = ServerFrame::MessageReceived {
-                        id: id.clone(),
-                        from: sender.clone(),
-                        to: to.clone(),
-                        payload: payload.clone(),
-                        timestamp_ms,
-                    };
-                    let _ = user.tx.send(Message::Text(serde_json::to_string(&msg)?.into()));
-                }
-            } else if let Some(recipient) = s.online.get(&to) {
+            if let Some(recipient) = s.online.get(&to) {
                 let msg = ServerFrame::MessageReceived {
                     id: id.clone(),
                     from: sender.clone(),
