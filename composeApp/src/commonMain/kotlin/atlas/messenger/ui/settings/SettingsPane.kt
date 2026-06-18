@@ -220,8 +220,8 @@ internal fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) 
                     MimeType.IMAGE_BMP,
                     MimeType.IMAGE_GIF,
                 ),
-            )
-        }
+    )
+}
 
         Column(modifier = Modifier.fillMaxSize()) {
             if (showHeader) {
@@ -664,7 +664,17 @@ internal fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) 
                         title = "Отпечаток ключа",
                         subtitle = state.publicKeyFingerprint,
                         colors = colors,
-                        shape = RoundedCornerShape(28.dp),
+                        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp, bottomStart = 4.dp, bottomEnd = 4.dp),
+                    )
+                    Spacer(Modifier.height(3.dp))
+                    SettingsTile(
+                        icon = MaterialSymbols.RoundedFilled.Devices,
+                        iconContainerColor = settingsIconColors[0],
+                        title = "Устройства",
+                        subtitle = "Управление подключёнными устройствами",
+                        colors = colors,
+                        shape = RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 28.dp, bottomEnd = 28.dp),
+                        onClick = { viewModel.openDevices() },
                     )
                 }
 
@@ -731,6 +741,15 @@ internal fun SettingsPane(viewModel: ChatViewModel, showHeader: Boolean = true) 
             onDismiss = viewModel::closeQrScanner,
         )
     }
+
+    if (state.showDevices) {
+        DevicesDialog(
+            devices = state.devices,
+            onLogoutDevice = { viewModel.logoutDevice(it) },
+            onRefresh = { viewModel.openDevices() },
+            onDismiss = viewModel::closeDevices,
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -783,6 +802,84 @@ private fun ServerUrlDialog(
                 modifier = Modifier
             ) {
                 Text("Отмена")
+            }
+        },
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DevicesDialog(
+    devices: List<atlas.messenger.network.DeviceEntry>,
+    onLogoutDevice: (String) -> Unit,
+    onRefresh: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Устройства") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (devices.isEmpty()) {
+                    Text(
+                        "Нет активных устройств",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = colors.onSurfaceVariant,
+                    )
+                } else {
+                    devices.forEach { device ->
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
+                            color = colors.surfaceContainer,
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(
+                                    imageVector = MaterialSymbols.RoundedFilled.Phone_android,
+                                    contentDescription = null,
+                                    tint = colors.onSurfaceVariant,
+                                    modifier = Modifier.size(24.dp),
+                                )
+                                Spacer(Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = device.deviceId.take(12) + "...",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = colors.onSurface,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                    Text(
+                                        text = "Подключено ${device.connectedAtSeconds} сек. назад",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = colors.onSurfaceVariant,
+                                    )
+                                }
+                                IconButton(onClick = { onLogoutDevice(device.deviceId) }) {
+                                    Icon(
+                                        MaterialSymbols.RoundedFilled.Logout,
+                                        contentDescription = "Отключить",
+                                        tint = MaterialTheme.colorScheme.error,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onRefresh) {
+                Text("Обновить")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Закрыть")
             }
         },
     )

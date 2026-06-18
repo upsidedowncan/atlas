@@ -6,6 +6,7 @@ import atlas.messenger.crypto.EncryptionService
 import atlas.messenger.crypto.createEncryptionService
 import atlas.messenger.data.ChatMessage
 import atlas.messenger.network.HistoryEntry
+import atlas.messenger.network.DeviceEntry
 import atlas.messenger.network.MiteChatContextMessage
 import atlas.messenger.network.ServerEvent
 import atlas.messenger.network.ConnectionState
@@ -96,6 +97,8 @@ data class ChatUiState(
     val pinnedConversations: Set<String> = emptySet(),
     val toastMessage: String? = null,
     val showQrScanner: Boolean = false,
+    val showDevices: Boolean = false,
+    val devices: List<atlas.messenger.network.DeviceEntry> = emptyList(),
 )
 data class MiteChat(
     val id: String,
@@ -257,7 +260,7 @@ class ChatViewModel : ViewModel() {
     }
 
     fun openSettings() {
-        _state.update { it.copy(showSettings = true, showUserDiscovery = false, showAtlasBroadcast = false, showArchive = false, showMiteChats = false, selectedMiteChatId = null) }
+        _state.update { it.copy(showSettings = true, showUserDiscovery = false, showAtlasBroadcast = false, showArchive = false, showMiteChats = false, selectedMiteChatId = null, showDevices = false) }
     }
 
     fun closeSettings() {
@@ -439,6 +442,35 @@ class ChatViewModel : ViewModel() {
 
     fun closeArchive() {
         _state.update { it.copy(showArchive = false) }
+    }
+
+    fun openDevices() {
+        _state.update {
+            it.copy(
+                showDevices = true,
+                showSettings = false,
+                showUserDiscovery = false,
+                showAtlasBroadcast = false,
+                showArchive = false,
+                showMiteChats = false,
+                selectedMiteChatId = null,
+                selectedPeer = null,
+            )
+        }
+        viewModelScope.launch { wsClient.listDevices() }
+    }
+
+    fun closeDevices() {
+        _state.update { it.copy(showDevices = false) }
+    }
+
+    fun logoutDevice(deviceId: String) {
+        viewModelScope.launch(Dispatchers.Default) {
+            runCatching { wsClient.logoutDevice(deviceId) }
+                .onFailure { e ->
+                    _state.update { it.copy(errorMessage = "Ошибка отключения устройства: ${e.message}") }
+                }
+        }
     }
 
     fun openMiteChats() {
@@ -1483,6 +1515,19 @@ class ChatViewModel : ViewModel() {
 
             is ServerEvent.QrLoginConfirmed -> {
                 closeQrScanner()
+            }
+
+            is ServerEvent.DeviceListReceived -> {
+                _state.update { it.copy(devices = event.devices) }
+            }
+
+            is ServerEvent.DeviceLoggedOutConfirmed -> {
+                _state.update { s ->
+                    s.copy(
+                        devices = s.devices.filter { it.deviceId != event.deviceId },
+                        toastMessage = "Устройство отключено",
+                    )
+                }
             }
 
             ServerEvent.Disconnected -> {

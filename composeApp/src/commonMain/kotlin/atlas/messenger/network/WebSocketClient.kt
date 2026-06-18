@@ -40,11 +40,15 @@ sealed class ServerEvent {
     data class MiteChatError(val id: String, val message: String) : ServerEvent()
     data class AtlasXImageReceived(val data: String?, val message: String?) : ServerEvent()
     data class QrLoginConfirmed(val username: String, val publicKey: String, val isPublic: Boolean) : ServerEvent()
+    data class DeviceListReceived(val devices: List<DeviceEntry>) : ServerEvent()
+    data class DeviceLoggedOutConfirmed(val deviceId: String) : ServerEvent()
 }
 
 data class MiteChatContextMessage(val role: String, val content: String)
 
 data class HistoryEntry(val id: String, val from: String, val to: String, val payload: EncryptedPayload, val timestampMs: Long)
+
+data class DeviceEntry(val deviceId: String, val connectedAtSeconds: Long)
 
 enum class ConnectionState { DISCONNECTED, CONNECTING, CONNECTED }
 
@@ -173,6 +177,12 @@ class WebSocketClient(private val httpClient: HttpClient) {
     suspend fun qrLoginConfirm(token: String) =
         send(buildJsonObject { put("type", "qr_login_confirm"); put("token", token) })
 
+    suspend fun listDevices() =
+        send(buildJsonObject { put("type", "list_devices") })
+
+    suspend fun logoutDevice(deviceId: String) =
+        send(buildJsonObject { put("type", "logout_device"); put("device_id", deviceId) })
+
     fun disconnect() {
         session?.let { s -> CoroutineScope(Dispatchers.Default).launch { s.close() } }
         _connectionState.value = ConnectionState.DISCONNECTED
@@ -254,6 +264,14 @@ class WebSocketClient(private val httpClient: HttpClient) {
                 "mite_chat_error" -> ServerEvent.MiteChatError(obj.string("id")!!, obj.string("message")!!)
                 "atlas_x_image" -> ServerEvent.AtlasXImageReceived(obj.string("data"), obj.string("message"))
                 "qr_login_confirmed" -> ServerEvent.QrLoginConfirmed(obj.string("username")!!, obj.string("publicKey")!!, obj.boolean("isPublic"))
+                "device_list" -> {
+                    val devices = obj.array("devices")?.map { el ->
+                        val d = el.jsonObject
+                        DeviceEntry(d.string("device_id")!!, d.long("connectedAt"))
+                    }.orEmpty()
+                    ServerEvent.DeviceListReceived(devices)
+                }
+                "device_logged_out" -> ServerEvent.DeviceLoggedOutConfirmed(obj.string("device_id")!!)
                 else -> return
             }
             _events.emit(event)
