@@ -39,6 +39,11 @@ enum ClientFrame {
         #[serde(rename = "publicKey")]
         public_key: String,
     },
+    #[serde(rename = "auth_session")]
+    AuthSession {
+        #[serde(rename = "sessionToken")]
+        session_token: String,
+    },
     #[serde(rename = "message")]
     Message {
         id: String,
@@ -123,10 +128,12 @@ struct EncryptedPayload {
 #[serde(tag = "type")]
 enum ServerFrame {
     #[serde(rename = "auth_ok")]
-    AuthOk { 
+    AuthOk {
         username: String,
         #[serde(rename = "isPublic")]
-        is_public: bool
+        is_public: bool,
+        #[serde(rename = "sessionToken", skip_serializing_if = "Option::is_none")]
+        session_token: Option<String>,
     },
     #[serde(rename = "error")]
     ServerError { message: String },
@@ -261,6 +268,31 @@ fn hash_password(password: &str, _salt: &[u8]) -> String {
     let hash_result = hasher.finalize();
     
     format!("{}:{}", BASE64.encode(salt_bytes), BASE64.encode(hash_result))
+}
+
+fn generate_session_token() -> String {
+    let mut rng = OsRng;
+    let mut bytes = [0u8; 32];
+    rng.fill_bytes(&mut bytes);
+    BASE64.encode(bytes).replace('+', "a").replace('/', "b").replace('=', "c")
+}
+
+fn create_session_token(db: &Connection, username: &str) -> String {
+    let token = generate_session_token();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    let _ = db.execute(
+        "INSERT INTO session_tokens (token, username, created_at) VALUES (?, ?, ?)",
+        params![token, username, now],
+    );
+    // clean expired tokens (>30 days)
+    let _ = db.execute(
+        "DELETE FROM session_tokens WHERE created_at < ?",
+        params![now - 30 * 86400],
+    );
+    token
 }
 
 fn verify_password(password: &str, stored: &str) -> bool {
@@ -425,9 +457,11 @@ async fn handle_message(
                 s.qr_sessions.remove(&token);
 
                 info!("QR login: {} ({} online)", uname, s.online.len());
+                let session_token = create_session_token(&s.db, &uname);
                 send_frame(tx, ServerFrame::AuthOk {
                     username: uname.clone(),
                     is_public: is_public == 1,
+                    session_token: Some(session_token),
                 })?;
                 send_frame(tx, ServerFrame::UserList { users: s.online.keys().cloned().collect() })?;
 
@@ -470,6 +504,61 @@ async fn handle_message(
         return Ok(());
     }
 
+    if let ClientFrame::AuthSession { session_token } = frame.clone() {
+        let mut s = state.lock().await;
+        let uname: String = match s.db.query_row(
+            "SELECT username FROM session_tokens WHERE token = ?",
+            params![session_token],
+            |row| row.get(0),
+        ) {
+            Ok(u) => u,
+            Err(_) => {
+                drop(s);
+                send_frame(tx, ServerFrame::ServerError { message: "Invalid or expired session".into() })?;
+                return Ok(());
+            }
+        };
+
+        // refresh the token so it doesn't expire while in use
+        let new_token = create_session_token(&s.db, &uname);
+        let _ = s.db.execute("DELETE FROM session_tokens WHERE token = ?", params![session_token]);
+
+        let is_public: i32 = s.db.query_row(
+            "SELECT is_public FROM users WHERE username = ?",
+            [&uname],
+            |row| row.get(0),
+        ).unwrap_or(0);
+
+        let pub_key: String = s.db.query_row(
+            "SELECT public_key FROM users WHERE username = ?",
+            [&uname],
+            |row| row.get(0),
+        ).unwrap_or_default();
+
+        *username = Some(uname.clone());
+        s.online.insert(uname.clone(), OnlineUser {
+            username: uname.clone(),
+            public_key: pub_key,
+            tx: tx.clone(),
+        });
+
+        info!("Session login: {} ({} online)", uname, s.online.len());
+        send_frame(tx, ServerFrame::AuthOk {
+            username: uname.clone(),
+            is_public: is_public == 1,
+            session_token: Some(new_token),
+        })?;
+        send_frame(tx, ServerFrame::UserList { users: s.online.keys().cloned().collect() })?;
+
+        let history = fetch_history(&s.db, &uname)?;
+        send_frame(tx, ServerFrame::MessageHistory { messages: history })?;
+        send_atlas_dialog_history(&s.db, tx)?;
+        send_display_names(&s.db, tx)?;
+        send_archived_conversations(&s.db, &uname, tx)?;
+
+        return Ok(());
+    }
+
     let mut s = state.lock().await;
 
     match frame {
@@ -505,9 +594,11 @@ async fn handle_message(
             });
 
             info!("Registered: {} ({} online)", uname, s.online.len());
+            let session_token = create_session_token(&s.db, &uname);
             send_frame(tx, ServerFrame::AuthOk { 
                 username: uname.clone(),
-                is_public: false 
+                is_public: false,
+                session_token: Some(session_token),
             })?;
             send_frame(tx, ServerFrame::UserList { users: s.online.keys().cloned().collect() })?;
             
@@ -553,9 +644,11 @@ async fn handle_message(
             });
 
             info!("Login: {} ({} online)", uname, s.online.len());
+            let session_token = create_session_token(&s.db, &uname);
             send_frame(tx, ServerFrame::AuthOk { 
                 username: uname.clone(),
-                is_public: is_public == 1
+                is_public: is_public == 1,
+                session_token: Some(session_token),
             })?;
             send_frame(tx, ServerFrame::UserList { users: s.online.keys().cloned().collect() })?;
 
@@ -898,7 +991,7 @@ async fn handle_message(
         }
         ClientFrame::MiteChatRequest { .. } => unreachable!("handled before acquiring state"),
         ClientFrame::FetchServerImage { .. } => unreachable!("handled before acquiring state"),
-        ClientFrame::QrLoginRequest { .. } | ClientFrame::QrLoginConfirm { .. } | ClientFrame::QrLoginPoll { .. } => unreachable!("handled before acquiring state"),
+        ClientFrame::QrLoginRequest { .. } | ClientFrame::QrLoginConfirm { .. } | ClientFrame::QrLoginPoll { .. } | ClientFrame::AuthSession { .. } => unreachable!("handled before acquiring state"),
     }
 }
 
@@ -1299,10 +1392,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             PRIMARY KEY (username, peer)
         );
         CREATE TABLE IF NOT EXISTS atlas_dialogs (
-            id TEXT PRIMARY KEY,
-            text TEXT NOT NULL,
-            image_url TEXT,
+            id          TEXT PRIMARY KEY,
+            text        TEXT NOT NULL,
+            image_url   TEXT,
             timestamp_ms INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS session_tokens (
+            token       TEXT PRIMARY KEY,
+            username    TEXT NOT NULL,
+            created_at  INTEGER NOT NULL
         );"
     )?;
     let _ = db.execute(
