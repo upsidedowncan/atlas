@@ -262,6 +262,7 @@ struct ConnectedDevice {
     username: String,
     connected_at: Instant,
     tx: tokio::sync::mpsc::UnboundedSender<Message>,
+    session_token: Option<String>,
 }
 
 struct State {
@@ -490,6 +491,7 @@ async fn handle_message(
                     username: uname.clone(),
                     connected_at: Instant::now(),
                     tx: tx.clone(),
+                    session_token: Some(session_token.clone()),
                 });
                 send_frame(tx, ServerFrame::AuthOk {
                     username: uname.clone(),
@@ -581,6 +583,7 @@ async fn handle_message(
             username: uname.clone(),
             connected_at: Instant::now(),
             tx: tx.clone(),
+            session_token: Some(new_token.clone()),
         });
         send_frame(tx, ServerFrame::AuthOk {
             username: uname.clone(),
@@ -618,8 +621,11 @@ async fn handle_message(
         if let Some(device) = s.devices.get(&target_device) {
             if device.username == *sender {
                 let _ = device.tx.send(Message::Text(
-                    serde_json::to_string(&ServerFrame::ServerError { message: "Logged out by user".into() })?.into()
+                    serde_json::to_string(&ServerFrame::DeviceLoggedOut { device_id: target_device.clone() })?.into()
                 ));
+                if let Some(ref token) = device.session_token {
+                    let _ = s.db.execute("DELETE FROM session_tokens WHERE token = ?", params![token]);
+                }
                 s.devices.remove(&target_device);
                 send_frame(tx, ServerFrame::DeviceLoggedOut { device_id: target_device })?;
             }
@@ -668,6 +674,7 @@ async fn handle_message(
                 username: uname.clone(),
                 connected_at: Instant::now(),
                 tx: tx.clone(),
+                session_token: Some(session_token.clone()),
             });
             send_frame(tx, ServerFrame::AuthOk { 
                 username: uname.clone(),
@@ -724,6 +731,7 @@ async fn handle_message(
                 username: uname.clone(),
                 connected_at: Instant::now(),
                 tx: tx.clone(),
+                session_token: Some(session_token.clone()),
             });
             send_frame(tx, ServerFrame::AuthOk { 
                 username: uname.clone(),
