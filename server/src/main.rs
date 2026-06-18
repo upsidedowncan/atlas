@@ -107,6 +107,10 @@ enum ClientFrame {
     QrLoginConfirm { token: String },
     #[serde(rename = "qr_login_poll")]
     QrLoginPoll { token: String },
+    #[serde(rename = "list_devices")]
+    ListDevices,
+    #[serde(rename = "logout_device")]
+    LogoutDevice { device_id: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -208,6 +212,17 @@ enum ServerFrame {
     QrLoginConfirmed { username: String, #[serde(rename = "publicKey")] public_key: String, #[serde(rename = "isPublic")] is_public: bool },
     #[serde(rename = "qr_login_error")]
     QrLoginError { message: String },
+    #[serde(rename = "device_list")]
+    DeviceList { devices: Vec<DeviceInfo> },
+    #[serde(rename = "device_logged_out")]
+    DeviceLoggedOut { device_id: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceInfo {
+    pub device_id: String,
+    #[serde(rename = "connectedAt")]
+    pub connected_at: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -242,10 +257,18 @@ struct QrLoginSession {
     created_at: Instant,
 }
 
+struct ConnectedDevice {
+    device_id: String,
+    username: String,
+    connected_at: Instant,
+    tx: tokio::sync::mpsc::UnboundedSender<Message>,
+}
+
 struct State {
     online: HashMap<String, OnlineUser>,
     db: Connection,
     qr_sessions: HashMap<String, QrLoginSession>,
+    devices: HashMap<String, ConnectedDevice>,
 }
 
 impl State {
@@ -254,6 +277,7 @@ impl State {
             online: HashMap::new(),
             db,
             qr_sessions: HashMap::new(),
+            devices: HashMap::new(),
         }
     }
 }
@@ -323,13 +347,14 @@ async fn handle_connection(ws: tokio_tungstenite::WebSocketStream<TcpStream>, ad
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Message>();
 
     let mut username: Option<String> = None;
+    let device_id = generate_session_token();
 
     loop {
         tokio::select! {
             msg = ws_receiver.next() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
-                        if let Err(e) = handle_message(&text, &mut username, &state, &tx).await {
+                        if let Err(e) = handle_message(&text, &mut username, &state, &tx, &device_id).await {
                             error!("Error handling message: {}", e);
                             let error_msg = ServerFrame::ServerError { message: e.to_string() };
                             if let Ok(json) = serde_json::to_string(&error_msg) {
@@ -357,6 +382,7 @@ async fn handle_connection(ws: tokio_tungstenite::WebSocketStream<TcpStream>, ad
     if let Some(user) = username.take() {
         let mut s = state.lock().await;
         s.online.remove(&user);
+        s.devices.remove(&device_id);
         info!("User '{}' disconnected ({} online)", user, s.online.len());
     }
 }
@@ -366,6 +392,7 @@ async fn handle_message(
     username: &mut Option<String>,
     state: &SharedState,
     tx: &tokio::sync::mpsc::UnboundedSender<Message>,
+    device_id: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let frame: ClientFrame = serde_json::from_str(text)?;
 
@@ -458,6 +485,12 @@ async fn handle_message(
 
                 info!("QR login: {} ({} online)", uname, s.online.len());
                 let session_token = create_session_token(&s.db, &uname);
+                s.devices.insert(device_id.to_string(), ConnectedDevice {
+                    device_id: device_id.to_string(),
+                    username: uname.clone(),
+                    connected_at: Instant::now(),
+                    tx: tx.clone(),
+                });
                 send_frame(tx, ServerFrame::AuthOk {
                     username: uname.clone(),
                     is_public: is_public == 1,
@@ -543,6 +576,12 @@ async fn handle_message(
         });
 
         info!("Session login: {} ({} online)", uname, s.online.len());
+        s.devices.insert(device_id.to_string(), ConnectedDevice {
+            device_id: device_id.to_string(),
+            username: uname.clone(),
+            connected_at: Instant::now(),
+            tx: tx.clone(),
+        });
         send_frame(tx, ServerFrame::AuthOk {
             username: uname.clone(),
             is_public: is_public == 1,
@@ -556,6 +595,35 @@ async fn handle_message(
         send_display_names(&s.db, tx)?;
         send_archived_conversations(&s.db, &uname, tx)?;
 
+        return Ok(());
+    }
+
+    if let ClientFrame::ListDevices = frame.clone() {
+        let sender = username.as_ref().ok_or("Not authenticated")?;
+        let mut s = state.lock().await;
+        let devices: Vec<DeviceInfo> = s.devices.values()
+            .filter(|d| d.username == *sender)
+            .map(|d| DeviceInfo {
+                device_id: d.device_id.clone(),
+                connected_at: d.connected_at.elapsed().as_secs() as i64,
+            })
+            .collect();
+        send_frame(tx, ServerFrame::DeviceList { devices })?;
+        return Ok(());
+    }
+
+    if let ClientFrame::LogoutDevice { device_id: target_device } = frame.clone() {
+        let sender = username.as_ref().ok_or("Not authenticated")?;
+        let mut s = state.lock().await;
+        if let Some(device) = s.devices.get(&target_device) {
+            if device.username == *sender {
+                let _ = device.tx.send(Message::Text(
+                    serde_json::to_string(&ServerFrame::ServerError { message: "Logged out by user".into() })?.into()
+                ));
+                s.devices.remove(&target_device);
+                send_frame(tx, ServerFrame::DeviceLoggedOut { device_id: target_device })?;
+            }
+        }
         return Ok(());
     }
 
@@ -595,6 +663,12 @@ async fn handle_message(
 
             info!("Registered: {} ({} online)", uname, s.online.len());
             let session_token = create_session_token(&s.db, &uname);
+            s.devices.insert(device_id.to_string(), ConnectedDevice {
+                device_id: device_id.to_string(),
+                username: uname.clone(),
+                connected_at: Instant::now(),
+                tx: tx.clone(),
+            });
             send_frame(tx, ServerFrame::AuthOk { 
                 username: uname.clone(),
                 is_public: false,
@@ -645,6 +719,12 @@ async fn handle_message(
 
             info!("Login: {} ({} online)", uname, s.online.len());
             let session_token = create_session_token(&s.db, &uname);
+            s.devices.insert(device_id.to_string(), ConnectedDevice {
+                device_id: device_id.to_string(),
+                username: uname.clone(),
+                connected_at: Instant::now(),
+                tx: tx.clone(),
+            });
             send_frame(tx, ServerFrame::AuthOk { 
                 username: uname.clone(),
                 is_public: is_public == 1,
@@ -764,7 +844,20 @@ async fn handle_message(
                 }
             }
 
-            if let Some(recipient) = s.online.get(&to) {
+            if to == "__everyone__" {
+                // Fan out to all online users except sender
+                for (uname, user) in s.online.iter() {
+                    if uname == sender { continue; }
+                    let msg = ServerFrame::MessageReceived {
+                        id: id.clone(),
+                        from: sender.clone(),
+                        to: to.clone(),
+                        payload: payload.clone(),
+                        timestamp_ms,
+                    };
+                    let _ = user.tx.send(Message::Text(serde_json::to_string(&msg)?.into()));
+                }
+            } else if let Some(recipient) = s.online.get(&to) {
                 let msg = ServerFrame::MessageReceived {
                     id: id.clone(),
                     from: sender.clone(),
@@ -991,7 +1084,7 @@ async fn handle_message(
         }
         ClientFrame::MiteChatRequest { .. } => unreachable!("handled before acquiring state"),
         ClientFrame::FetchServerImage { .. } => unreachable!("handled before acquiring state"),
-        ClientFrame::QrLoginRequest { .. } | ClientFrame::QrLoginConfirm { .. } | ClientFrame::QrLoginPoll { .. } | ClientFrame::AuthSession { .. } => unreachable!("handled before acquiring state"),
+        ClientFrame::QrLoginRequest { .. } | ClientFrame::QrLoginConfirm { .. } | ClientFrame::QrLoginPoll { .. } | ClientFrame::AuthSession { .. } | ClientFrame::ListDevices | ClientFrame::LogoutDevice { .. } => unreachable!("handled before acquiring state"),
     }
 }
 
